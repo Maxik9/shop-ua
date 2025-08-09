@@ -1,7 +1,8 @@
 // App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom'
 import NavBar from './components/NavBar'
-import Catalog from './pages/Catalog'
++import Catalog from './pages/Catalog'
++import Product from './pages/Product'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import NewOrder from './pages/NewOrder'
@@ -30,6 +31,7 @@ export default function App() {
       <NavBar />
       <Routes>
         <Route path="/" element={<Catalog />} />
+        <Route path="/product/:id" element={<Product />} />
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/new-order" element={<PrivateRoute><NewOrder /></PrivateRoute>} />
