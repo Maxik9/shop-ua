@@ -1,8 +1,8 @@
 // App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom'
 import NavBar from './components/NavBar'
-+import Catalog from './pages/Catalog'
-+import Product from './pages/Product'
+import Catalog from './pages/Catalog'
+import Product from './pages/Product'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import NewOrder from './pages/NewOrder'
