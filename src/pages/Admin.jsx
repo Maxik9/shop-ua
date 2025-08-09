@@ -1,82 +1,209 @@
+// src/pages/Admin.jsx
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { Link } from 'react-router-dom'
 
-export default function Admin(){
-  const [me, setMe] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [prod, setProd] = useState({name:'', description:'', image_url:'', price_dropship:''})
-  const [orders, setOrders] = useState([])
+export default function Admin() {
+  const [user, setUser] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(null) // null | true | false
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  // поля форми
+  const emptyForm = { id: null, name: '', description: '', image_url: '', price_dropship: '' }
+  const [form, setForm] = useState(emptyForm)
 
   useEffect(() => {
-    (async () => {
-      const { data: s } = await supabase.auth.getSession()
-      const user = s.session?.user
-      setMe(user)
-      if(!user) return
-      const { data: p } = await supabase.from('profiles').select('*').eq('user_id', user.id).single()
-      setProfile(p)
-      if(p?.role === 'admin') await loadOrders()
-    })()
+    async function init() {
+      const { data } = await supabase.auth.getSession()
+      const u = data.session?.user ?? null
+      setUser(u)
+      if (u) {
+        const { data: ok } = await supabase.rpc('is_admin', { u: u.id })
+        setIsAdmin(Boolean(ok))
+        if (ok) loadProducts()
+      } else {
+        setIsAdmin(false)
+      }
+    }
+    init()
+
+    const sub = supabase.auth.onAuthStateChange((_e, session) => {
+      const u = session?.user ?? null
+      setUser(u)
+    })
+    return () => sub.data.subscription.unsubscribe()
   }, [])
 
-  async function loadOrders(){
-    const { data } = await supabase.from('orders').select('*, products(name)').order('created_at', { ascending:false })
-    setOrders(data || [])
+  async function loadProducts() {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (!error) setProducts(data || [])
+    setLoading(false)
   }
 
-  async function addProduct(e){
+  function onChange(e) {
+    const { name, value } = e.target
+    setForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  async function onSave(e) {
     e.preventDefault()
-    const payload = { ...prod, price_dropship: Number(prod.price_dropship) }
-    const { error } = await supabase.from('products').insert(payload)
-    if(error){ alert(error.message); return }
-    alert('Товар додано')
-    setProd({name:'', description:'', image_url:'', price_dropship:''})
+    if (!form.name || !form.price_dropship) return
+    setLoading(true)
+
+    const payload = {
+      name: form.name.trim(),
+      description: form.description.trim() || null,
+      image_url: form.image_url.trim() || null,
+      price_dropship: Number(form.price_dropship),
+    }
+
+    let error
+    if (form.id) {
+      // UPDATE
+      ;({ error } = await supabase.from('products').update(payload).eq('id', form.id))
+    } else {
+      // INSERT
+      ;({ error } = await supabase.from('products').insert(payload))
+    }
+
+    setLoading(false)
+    if (error) {
+      alert('Помилка збереження: ' + error.message)
+      return
+    }
+    setForm(emptyForm)
+    await loadProducts()
   }
 
-  async function changeStatus(id, status){
-    const { error } = await supabase.from('orders').update({ status }).eq('id', id)
-    if(error){ alert(error.message); return }
-    await loadOrders()
+  function onEdit(p) {
+    setForm({
+      id: p.id,
+      name: p.name ?? '',
+      description: p.description ?? '',
+      image_url: p.image_url ?? '',
+      price_dropship: String(p.price_dropship ?? ''),
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  if(!me) return <p style={{padding:24}}>Спочатку увійдіть.</p>
-  if(profile?.role !== 'admin') return <p style={{padding:24}}>Доступ лише для адміна.</p>
+  async function onDelete(p) {
+    if (!confirm(`Видалити товар: «${p.name}»?`)) return
+    const { error } = await supabase.from('products').delete().eq('id', p.id)
+    if (error) {
+      alert('Помилка видалення: ' + error.message)
+      return
+    }
+    setProducts(prev => prev.filter(x => x.id !== p.id))
+    if (form.id === p.id) setForm(emptyForm)
+  }
+
+  if (isAdmin === null) {
+    return <p style={{ padding: 24 }}>Перевірка доступу…</p>
+  }
+  if (!isAdmin) {
+    return (
+      <div style={{ padding: 24 }}>
+        <p>Доступ лише для адміна.</p>
+        <Link to="/">На головну</Link>
+      </div>
+    )
+  }
 
   return (
-    <div style={{maxWidth:960, margin:'24px auto', display:'grid', gap:24}}>
-      <section>
-        <h3>Додати товар</h3>
-        <form onSubmit={addProduct} style={{display:'grid', gap:8, maxWidth:520}}>
-          <input placeholder="Назва" value={prod.name} onChange={e=>setProd({...prod, name:e.target.value})} required />
-          <textarea placeholder="Опис" value={prod.description} onChange={e=>setProd({...prod, description:e.target.value})} />
-          <input placeholder="Image URL" value={prod.image_url} onChange={e=>setProd({...prod, image_url:e.target.value})} />
-          <input type="number" step="0.01" placeholder="Дроп‑ціна (₴)" value={prod.price_dropship} onChange={e=>setProd({...prod, price_dropship:e.target.value})} required />
-          <button type="submit">Додати</button>
-        </form>
-      </section>
+    <div style={{ padding: 24, maxWidth: 980, margin: '0 auto' }}>
+      <h2 style={{ marginBottom: 12 }}>{form.id ? 'Редагувати товар' : 'Додати товар'}</h2>
+      <form onSubmit={onSave} style={{ display: 'grid', gap: 12, marginBottom: 28 }}>
+        <input
+          name="name"
+          placeholder="Назва *"
+          value={form.name}
+          onChange={onChange}
+          required
+        />
+        <textarea
+          name="description"
+          placeholder="Опис (необов’язково)"
+          value={form.description}
+          onChange={onChange}
+          rows={3}
+        />
+        <input
+          name="image_url"
+          placeholder="URL зображення (необов’язково)"
+          value={form.image_url}
+          onChange={onChange}
+        />
+        <input
+          name="price_dropship"
+          placeholder="Дроп-ціна (грн) *"
+          type="number"
+          step="0.01"
+          min="0"
+          value={form.price_dropship}
+          onChange={onChange}
+          required
+        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="submit" disabled={loading}>
+            {form.id ? 'Оновити' : 'Додати'}
+          </button>
+          {form.id && (
+            <button type="button" onClick={() => setForm(emptyForm)}>
+              Скасувати редагування
+            </button>
+          )}
+        </div>
+      </form>
 
-      <section>
-        <h3>Усі замовлення</h3>
-        <div style={{display:'grid', gap:12}}>
-          {orders.map(o => (
-            <div key={o.id} style={{border:'1px solid #eee', padding:12, borderRadius:8}}>
-              <div style={{display:'flex', justifyContent:'space-between', gap:12}}>
-                <div>
-                  <b>{o.products?.name}</b> • qty {o.qty} • user {o.user_id.slice(0,8)}…
-                  <div style={{color:'#555'}}>Сума продажу: {Number(o.my_price).toFixed(2)} ₴</div>
-                  <div style={{color:'#777'}}>Отримувач: {o.recipient_name} — {o.settlement}, відділення НП: {o.nova_poshta_branch} • {o.recipient_phone}</div>
-                </div>
-                <div>
-                  <select value={o.status} onChange={e=>changeStatus(o.id, e.target.value)}>
-                    {['pending','processing','ordered','shipped','delivered','canceled'].map(s=> <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
+      <h3 style={{ marginBottom: 12 }}>Список товарів</h3>
+      {loading && products.length === 0 ? <p>Завантаження…</p> : null}
+      <div style={{ display: 'grid', gap: 12 }}>
+        {products.map(p => (
+          <div
+            key={p.id}
+            style={{
+              border: '1px solid #eee',
+              borderRadius: 8,
+              padding: 12,
+              display: 'grid',
+              gridTemplateColumns: '100px 1fr auto',
+              gap: 12,
+              alignItems: 'center',
+            }}
+          >
+            {p.image_url ? (
+              <img
+                src={p.image_url}
+                alt={p.name}
+                style={{ width: 100, height: 80, objectFit: 'cover', borderRadius: 6 }}
+              />
+            ) : (
+              <div style={{ width: 100, height: 80, background: '#f5f5f5', borderRadius: 6 }} />
+            )}
+            <div>
+              <div style={{ fontWeight: 600 }}>{p.name}</div>
+              {p.description && (
+                <div style={{ color: '#666', fontSize: 14, marginTop: 4 }}>{p.description}</div>
+              )}
+              <div style={{ marginTop: 6 }}>
+                Дроп-ціна: <b>{Number(p.price_dropship).toFixed(2)} ₴</b>
               </div>
             </div>
-          ))}
-          {orders.length===0 && <p>Поки немає замовлень.</p>}
-        </div>
-      </section>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => onEdit(p)}>Редагувати</button>
+              <button onClick={() => onDelete(p)} style={{ background: '#ffe8e8' }}>
+                Видалити
+              </button>
+            </div>
+          </div>
+        ))}
+        {products.length === 0 && !loading && <p>Ще немає товарів.</p>}
+      </div>
     </div>
   )
 }
