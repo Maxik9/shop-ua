@@ -19,7 +19,6 @@ export default function ProductCard({ product, onSelect }) {
 
       <div style={{display:'flex', justifyContent:'space-between', marginTop:8}}>
         <span>Дроп-ціна: <b>{Number(product.price_dropship).toFixed(2)} ₴</b></span>
-        <button onClick={() => onSelect(product)}>Обрати</button>
       </div>
     </div>
   )
