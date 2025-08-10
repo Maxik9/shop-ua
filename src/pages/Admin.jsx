@@ -1,3 +1,4 @@
+// src/pages/Admin.jsx
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { Link } from 'react-router-dom'
@@ -6,14 +7,15 @@ const BUCKET = 'product-images'
 
 export default function Admin() {
   const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(null) // null | true | false
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(false)
 
+  // форма товара
   const emptyForm = { id: null, name: '', description: '', image_url: '', price_dropship: '' }
   const [form, setForm] = useState(emptyForm)
 
-  // для файлов
+  // файлы для загрузки
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -30,6 +32,7 @@ export default function Admin() {
       }
     }
     init()
+
     const sub = supabase.auth.onAuthStateChange((_e, session) => {
       const u = session?.user ?? null
       setUser(u)
@@ -41,7 +44,7 @@ export default function Admin() {
     setLoading(true)
     const { data, error } = await supabase
       .from('products')
-      .select('*, product_images(* )') // заберём и картинки в один запрос
+      .select('*, product_images(*)')
       .order('created_at', { ascending: false })
     if (!error) setProducts(data || [])
     setLoading(false)
@@ -66,11 +69,13 @@ export default function Admin() {
 
     let error, newId = form.id
     if (form.id) {
-      // UPDATE товара
       ;({ error } = await supabase.from('products').update(payload).eq('id', form.id))
     } else {
-      // INSERT товара с возвратом id
-      const { data, error: insErr } = await supabase.from('products').insert(payload).select('id').single()
+      const { data, error: insErr } = await supabase
+        .from('products')
+        .insert(payload)
+        .select('id')
+        .single()
       error = insErr
       newId = data?.id || null
     }
@@ -81,16 +86,14 @@ export default function Admin() {
       return
     }
 
-    // Если выбраны файлы — зальём их в Storage и запишем ссылки
+    // загрузка выбранных фото в Storage + запись ссылок в product_images
     const files = fileInputRef.current?.files
     if (files && files.length && newId) {
       await uploadImagesAndLink(newId, files)
-      // если у товара не было обложки, поставим первой картинкой
+      // если нет обложки — возьмём первое фото
       if (!form.image_url) {
         const first = await getFirstImageUrl(newId)
-        if (first) {
-          await supabase.from('products').update({ image_url: first }).eq('id', newId)
-        }
+        if (first) await supabase.from('products').update({ image_url: first }).eq('id', newId)
       }
     }
 
@@ -102,18 +105,34 @@ export default function Admin() {
 
   async function uploadImagesAndLink(productId, fileList) {
     for (const file of fileList) {
-      const ext = file.name.split('.').pop()
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
       const path = `${productId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
-        cacheControl: '3600',
-        upsert: false,
-      })
-      if (upErr) { console.warn('upload error', upErr); continue }
 
-      const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path)
-      const url = pub?.publicUrl
-      if (url) {
-        await supabase.from('product_images').insert({ product_id: productId, url })
+      const { error: upErr } = await supabase
+        .storage
+        .from(BUCKET)
+        .upload(path, file, { cacheControl: '3600', upsert: false })
+
+      if (upErr) {
+        console.error('Upload error:', upErr)
+        alert('Помилка завантаження: ' + upErr.message)
+        continue
+      }
+
+      const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
+      const url = data?.publicUrl
+      if (!url) {
+        alert('Не вдалося отримати публічне посилання на зображення')
+        continue
+      }
+
+      const { error: linkErr } = await supabase
+        .from('product_images')
+        .insert({ product_id: productId, url })
+
+      if (linkErr) {
+        console.error('DB link error:', linkErr)
+        alert('Помилка збереження посилання на зображення: ' + linkErr.message)
       }
     }
   }
@@ -150,13 +169,6 @@ export default function Admin() {
     if (form.id === p.id) setForm(emptyForm)
   }
 
-  async function deleteImage(imgId, productId) {
-    // удаляем запись; (файл можно тоже удалить при желании, если хранить путь)
-    const { error } = await supabase.from('product_images').delete().eq('id', imgId)
-    if (error) { alert('Помилка видалення зображення: ' + error.message); return }
-    await loadProducts()
-  }
-
   if (isAdmin === null) return <p style={{ padding: 24 }}>Перевірка доступу…</p>
   if (!isAdmin) {
     return (
@@ -180,7 +192,7 @@ export default function Admin() {
         <div>
           <label style={{display:'block', marginBottom:6}}>Додаткові фото (можна кілька):</label>
           <input ref={fileInputRef} type="file" accept="image/*" multiple />
-          <small style={{color:'#666'}}>Ці фото збережуться в Storage після збереження товару.</small>
+          <small style={{color:'#666'}}>Фото збережуться в Storage після збереження товару.</small>
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
@@ -191,6 +203,7 @@ export default function Admin() {
 
       <h3 style={{ marginBottom: 12 }}>Список товарів</h3>
       {loading && products.length === 0 ? <p>Завантаження…</p> : null}
+
       <div style={{ display: 'grid', gap: 12 }}>
         {products.map(p => (
           <div key={p.id} style={{border:'1px solid #eee', borderRadius:8, padding:12}}>
@@ -211,24 +224,80 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* мини-галерея картинок товара */}
+            {/* перетаскивание и сортировка фото */}
             {p.product_images?.length ? (
-              <div style={{display:'flex', gap:8, marginTop:12, flexWrap:'wrap'}}>
-                {p.product_images.map(img => (
-                  <div key={img.id} style={{position:'relative'}}>
-                    <img src={img.url} alt="" style={{width:100, height:80, objectFit:'cover', borderRadius:6, border:'1px solid #ddd'}} />
-                    <button
-                      onClick={() => deleteImage(img.id, p.id)}
-                      style={{position:'absolute', top:2, right:2, padding:'2px 6px', fontSize:12, background:'#fff'}}
-                      title="Видалити фото"
-                    >×</button>
-                  </div>
-                ))}
-              </div>
+              <ReorderImages product={p} onChanged={loadProducts} />
             ) : null}
           </div>
         ))}
         {products.length === 0 && !loading && <p>Ще немає товарів.</p>}
+      </div>
+    </div>
+  )
+}
+
+/** Компонент сортировки фото перетягиванием */
+function ReorderImages({ product, onChanged }) {
+  const [list, setList] = useState(product.product_images || [])
+  const dragIndex = useRef(null)
+
+  useEffect(() => { setList(product.product_images || []) }, [product.product_images])
+
+  function onDragStart(idx){ dragIndex.current = idx }
+  function onDragOver(e){ e.preventDefault() }
+  function onDrop(idx){
+    const from = dragIndex.current
+    if (from === null || from === idx) return
+    const copy = [...list]
+    const [moved] = copy.splice(from, 1)
+    copy.splice(idx, 0, moved)
+    setList(copy)
+    dragIndex.current = null
+  }
+
+  async function saveOrder(){
+    // проставим sort_order по текущему порядку
+    const updates = list.map((img, index) =>
+      supabase.from('product_images').update({ sort_order: index }).eq('id', img.id)
+    )
+    const results = await Promise.all(updates)
+    const fail = results.find(r => r.error)
+    if (fail) { alert('Помилка збереження порядку: ' + fail.error.message); return }
+    onChanged && onChanged()
+  }
+
+  async function deleteImage(imgId){
+    const { error } = await supabase.from('product_images').delete().eq('id', imgId)
+    if (error) { alert('Помилка видалення зображення: ' + error.message); return }
+    setList(list.filter(x => x.id !== imgId))
+    onChanged && onChanged()
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex', gap:8, marginTop:12, flexWrap:'wrap'}}>
+        {list.map((img, idx) => (
+          <div
+            key={img.id}
+            draggable
+            onDragStart={()=>onDragStart(idx)}
+            onDragOver={onDragOver}
+            onDrop={()=>onDrop(idx)}
+            title="Перетягніть, щоб змінити порядок"
+            style={{position:'relative', width:100, height:100, border:'1px dashed #bbb', borderRadius:6, overflow:'hidden', background:'#fafafa', cursor:'grab'}}
+          >
+            <img src={img.url} alt="" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+            <button
+              onClick={()=>deleteImage(img.id)}
+              style={{position:'absolute', top:2, right:2, padding:'2px 6px', fontSize:12, background:'#fff'}}
+              title="Видалити фото"
+            >×</button>
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:8}}>
+        <button onClick={saveOrder}>Зберегти порядок</button>
+        <small style={{marginLeft:8, color:'#666'}}>Перетягніть зображення та натисніть «Зберегти порядок»</small>
       </div>
     </div>
   )
