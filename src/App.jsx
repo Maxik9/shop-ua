@@ -1,16 +1,16 @@
-// App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom'
 import NavBar from './components/NavBar'
 import Catalog from './pages/Catalog'
 import Product from './pages/Product'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import NewOrder from './pages/NewOrder'
 import Admin from './pages/Admin'
 import About from './pages/About'
 import Contacts from './pages/Contacts'
+import Cart from './pages/Cart'              // ⟵ НОВЕ
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
+import { CartProvider } from './context/CartContext' // ⟵ НОВЕ
 
 function PrivateRoute({ children }) {
   const [ready, setReady] = useState(false)
@@ -27,18 +27,18 @@ function PrivateRoute({ children }) {
 
 export default function App() {
   return (
-    <div>
+    <CartProvider>
       <NavBar />
       <Routes>
         <Route path="/" element={<Catalog />} />
         <Route path="/product/:id" element={<Product />} />
+        <Route path="/cart" element={<PrivateRoute><Cart /></PrivateRoute>} />   {/* ⟵ НОВЕ */}
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-        <Route path="/new-order" element={<PrivateRoute><NewOrder /></PrivateRoute>} />
         <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
         <Route path="/about" element={<About />} />
         <Route path="/contacts" element={<Contacts />} />
       </Routes>
-    </div>
+    </CartProvider>
   )
 }
