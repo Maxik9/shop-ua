@@ -1,3 +1,4 @@
+// src/pages/Product.jsx
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
@@ -10,25 +11,42 @@ export default function Product() {
 
   const [product, setProduct] = useState(null)
   const [gallery, setGallery] = useState([])
-  const [i, setI] = useState(0)
+  const [idx, setIdx] = useState(0)
 
   useEffect(() => {
-    load()
-    // eslint-disable-next-line
-  }, [id])
+    ;(async () => {
+      // витягуємо конкретні колонки, щоб точно було gallery_json
+      const { data, error } = await supabase
+        .from('products')
+        .select('id,name,description,price_dropship,image_url,gallery_json')
+        .eq('id', id)
+        .single()
+      if (error) { console.error(error); return }
 
-  async function load() {
-    const { data } = await supabase.from('products').select('*').eq('id', id).single()
-    setProduct(data || null)
-    const g = (data?.gallery_json && Array.isArray(data.gallery_json)) ? data.gallery_json : []
-    const arr = (data?.image_url ? [data.image_url, ...g] : g).slice(0, 12)
-    setGallery(arr)
-    setI(0)
-  }
+      setProduct(data)
+
+      // НОРМАЛІЗУЄМО галерею:
+      let g = []
+      const raw = data?.gallery_json
+      if (Array.isArray(raw)) g = raw
+      else if (typeof raw === 'string' && raw.trim()) {
+        try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) g = parsed } catch {}
+      }
+
+      const full = [data?.image_url, ...g].filter(Boolean)
+      // приберемо дублікати
+      const uniq = Array.from(new Set(full))
+      setGallery(uniq)
+      setIdx(0)
+    })()
+  }, [id])
 
   if (!product) return <div className="container-page my-6">Завантаження…</div>
 
-  const cur = gallery[i] || product.image_url
+  const cur = gallery[idx] || product.image_url
+
+  function prev()  { if (gallery.length) setIdx(v => (v - 1 + gallery.length) % gallery.length) }
+  function next()  { if (gallery.length) setIdx(v => (v + 1) % gallery.length) }
 
   return (
     <div className="container-page my-6">
@@ -41,29 +59,21 @@ export default function Product() {
             </div>
           </div>
 
-          {/* Стрелки */}
           {gallery.length > 1 && (
             <>
-              <button
-                className="btn-ghost absolute left-[-10px] top-1/2 -translate-y-1/2"
-                onClick={() => setI((i - 1 + gallery.length) % gallery.length)}
-              >‹</button>
-              <button
-                className="btn-ghost absolute right-[-10px] top-1/2 -translate-y-1/2"
-                onClick={() => setI((i + 1) % gallery.length)}
-              >›</button>
+              <button className="btn-ghost absolute left-[-10px] top-1/2 -translate-y-1/2" onClick={prev}>‹</button>
+              <button className="btn-ghost absolute right-[-10px] top-1/2 -translate-y-1/2" onClick={next}>›</button>
             </>
           )}
 
-          {/* Превью */}
           {gallery.length > 1 && (
             <div className="mt-3 flex gap-2 flex-wrap">
-              {gallery.map((src, idx) => (
+              {gallery.map((src, i) => (
                 <button
-                  key={idx}
-                  onClick={() => setI(idx)}
-                  className={`overflow-hidden rounded-xl border ${i===idx ? 'border-indigo-500' : 'border-slate-200'}`}
-                  style={{width:92, height:92, background:'#f1f5f9'}}
+                  key={src + i}
+                  onClick={() => setIdx(i)}
+                  className={`overflow-hidden rounded-xl border ${idx===i ? 'border-indigo-500' : 'border-slate-200'}`}
+                  style={{ width: 92, height: 92, background:'#f1f5f9' }}
                 >
                   <img src={src} alt="" className="w-full h-full object-cover" />
                 </button>
@@ -72,7 +82,7 @@ export default function Product() {
           )}
         </div>
 
-        {/* Инфо */}
+        {/* Інфо */}
         <div>
           <h1 className="h1 mb-2">{product.name}</h1>
           {product.description && (
@@ -81,7 +91,9 @@ export default function Product() {
 
           <div className="text-[18px] mb-5">
             Дроп-ціна:&nbsp;
-            <span className="price text-[22px]">{Number(product.price_dropship).toFixed(2)} ₴</span>
+            <span className="price text-[22px]">
+              {Number(product.price_dropship).toFixed(2)} ₴
+            </span>
           </div>
 
           <div className="flex gap-3">
@@ -89,7 +101,9 @@ export default function Product() {
             <button
               className="btn-primary"
               onClick={() => { add(product); navigate('/cart') }}
-            >Замовити</button>
+            >
+              Замовити
+            </button>
           </div>
         </div>
       </div>
