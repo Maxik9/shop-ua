@@ -1,13 +1,12 @@
-// src/pages/Cart.jsx
 import { useCart } from '../context/CartContext'
 import { useState, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 
 export default function Cart() {
   const cart = useCart()
-  // Обережно працюємо з полями, щоб нічого не «падало»
-  const items = Array.isArray(cart?.items) ? cart.items : []
-  const remove = typeof cart?.remove === 'function' ? cart.remove : () => {}
+  const items   = Array.isArray(cart?.items) ? cart.items : []
+  const remove  = typeof cart?.remove === 'function' ? cart.remove : () => {}
+  const setPrice= typeof cart?.setPrice === 'function' ? cart.setPrice : () => {}
   const totalFn = typeof cart?.total === 'function' ? cart.total : () => 0
 
   const [form, setForm] = useState({
@@ -48,9 +47,7 @@ export default function Cart() {
       }
       alert('Замовлення надіслано! Статус можна переглянути у «Мої замовлення».')
       window.location.href = '/'
-    } finally {
-      setSending(false)
-    }
+    } finally { setSending(false) }
   }
 
   return (
@@ -63,9 +60,7 @@ export default function Cart() {
         {items.map((it) => (
           <div key={it.id} className="flex items-center gap-4 p-4 border-b last:border-b-0 border-slate-100">
             <div className="w-[110px] h-[80px] overflow-hidden rounded-xl bg-slate-100">
-              {it?.image_url ? (
-                <img src={it.image_url} alt={it?.name || ''} className="w-full h-full object-cover" />
-              ) : null}
+              {it?.image_url && <img src={it.image_url} alt={it?.name || ''} className="w-full h-full object-cover" />}
             </div>
 
             <div className="flex-1 min-w-0">
@@ -75,8 +70,15 @@ export default function Cart() {
               </div>
             </div>
 
-            <div className="w-[120px] text-right font-bold">
-              {Number(it?.my_price ?? it?.price_dropship ?? 0).toFixed(2)}
+            {/* Ввід ціни продажу */}
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-muted">Сума продажу (грн)</div>
+              <input
+                className="input input-xs w-[120px] text-right"
+                value={String(Number(it?.my_price ?? it?.price_dropship ?? 0))}
+                onChange={e => setPrice(it.id, e.target.value)}
+                inputMode="numeric"
+              />
             </div>
 
             <button
@@ -102,31 +104,20 @@ export default function Cart() {
 
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="ПІБ отримувача">
-                <input className="input"
-                       value={form.recipient_name}
-                       onChange={e=>setForm({...form, recipient_name:e.target.value})}
-                       placeholder="Ім'я Прізвище"/>
+                <input className="input" value={form.recipient_name}
+                  onChange={e=>setForm({...form, recipient_name:e.target.value})} placeholder="Ім'я Прізвище"/>
               </Field>
-
               <Field label="Телефон отримувача (+380…)">
-                <input className="input"
-                       value={form.recipient_phone}
-                       onChange={e=>setForm({...form, recipient_phone:e.target.value})}
-                       placeholder="+380…"/>
+                <input className="input" value={form.recipient_phone}
+                  onChange={e=>setForm({...form, recipient_phone:e.target.value})} placeholder="+380…"/>
               </Field>
-
               <Field label="Населений пункт">
-                <input className="input"
-                       value={form.settlement}
-                       onChange={e=>setForm({...form, settlement:e.target.value})}
-                       placeholder="Київ"/>
+                <input className="input" value={form.settlement}
+                  onChange={e=>setForm({...form, settlement:e.target.value})} placeholder="Київ"/>
               </Field>
-
               <Field label="Відділення Нової пошти">
-                <input className="input"
-                       value={form.nova_poshta_branch}
-                       onChange={e=>setForm({...form, nova_poshta_branch:e.target.value})}
-                       placeholder="Відділення №…"/>
+                <input className="input" value={form.nova_poshta_branch}
+                  onChange={e=>setForm({...form, nova_poshta_branch:e.target.value})} placeholder="Відділення №…"/>
               </Field>
             </div>
 

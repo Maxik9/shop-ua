@@ -8,19 +8,14 @@ export default function Admin() {
   const [q, setQ] = useState('')
   const [catFilter, setCatFilter] = useState('all')
 
-  // форма
   const emptyForm = {
-    id: null,
-    name: '',
-    description: '',
-    category_id: null,
-    price_dropship: '',
-    image_url: '',
-    gallery_json: []
+    id: null, name:'', description:'', category_id:null,
+    price_dropship:'', image_url:'', gallery_json:[]
   }
   const [form, setForm] = useState(emptyForm)
   const [mainFile, setMainFile] = useState(null)
   const [galleryFiles, setGalleryFiles] = useState([])
+  const [newCat, setNewCat] = useState('')
 
   useEffect(() => { loadAll() }, [])
   async function loadAll() {
@@ -45,35 +40,20 @@ export default function Admin() {
   }, [products, q, catFilter])
 
   function startCreate() {
-    setForm(emptyForm)
-    setMainFile(null)
-    setGalleryFiles([])
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    setForm(emptyForm); setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function startEdit(p) {
     setForm({
-      id: p.id,
-      name: p.name || '',
-      description: p.description || '',
-      category_id: p.category_id || null,
-      price_dropship: p.price_dropship ?? '',
-      image_url: p.image_url || '',
-      gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : []
+      id: p.id, name: p.name || '', description: p.description || '',
+      category_id: p.category_id || null, price_dropship: p.price_dropship ?? '',
+      image_url: p.image_url || '', gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : []
     })
-    setMainFile(null)
-    setGalleryFiles([])
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  async function ensureBucket() {
-    // Нічого робити не треба якщо вже існує
-    // (Supabase не має простого SDK-методу "create if not exists" з клієнта)
-    return 'product-images'
+    setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function uploadToStorage(file) {
     if (!file) return null
-    const bucket = await ensureBucket()
+    const bucket = 'product-images'
     const ext = file.name.split('.').pop()
     const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
     const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: false })
@@ -83,16 +63,12 @@ export default function Admin() {
   }
 
   async function save() {
-    if (!form.name || !form.price_dropship) {
-      alert('Назва та дроп-ціна — обов’язкові')
-      return
-    }
+    if (!form.name || !form.price_dropship) { alert('Назва та дроп-ціна — обов’язкові'); return }
     setLoading(true)
     try {
       let image_url = form.image_url
-      if (mainFile) {
-        image_url = await uploadToStorage(mainFile)
-      }
+      if (mainFile) image_url = await uploadToStorage(mainFile)
+
       let gallery = Array.isArray(form.gallery_json) ? [...form.gallery_json] : []
       if (galleryFiles.length) {
         const uploaded = []
@@ -109,23 +85,14 @@ export default function Admin() {
         gallery_json: gallery
       }
 
-      if (form.id) {
-        await supabase.from('products').update(payload).eq('id', form.id)
-      } else {
-        await supabase.from('products').insert(payload)
-      }
+      if (form.id) await supabase.from('products').update(payload).eq('id', form.id)
+      else await supabase.from('products').insert(payload)
 
       await loadAll()
-      setForm(emptyForm)
-      setMainFile(null)
-      setGalleryFiles([])
+      setForm(emptyForm); setMainFile(null); setGalleryFiles([])
       alert('Збережено ✅')
-    } catch (e) {
-      console.error(e)
-      alert(e.message || 'Помилка')
-    } finally {
-      setLoading(false)
-    }
+    } catch (e) { console.error(e); alert(e.message || 'Помилка') }
+    finally { setLoading(false) }
   }
 
   async function del(id) {
@@ -134,14 +101,23 @@ export default function Admin() {
     setProducts(products.filter(p => p.id !== id))
   }
 
-  async function quickAddCategory() {
-    const name = window.prompt('Нова категорія (назва):')
+  // ---- КАТЕГОРІЇ ----
+  async function addCategory() {
+    const name = newCat.trim()
     if (!name) return
     const { data, error } = await supabase.from('categories').insert({ name }).select().single()
-    if (!error && data) {
-      setCategories([...(categories || []), data])
-      setForm(f => ({ ...f, category_id: data.id }))
-    }
+    if (error) { alert(error.message); return }
+    setCategories([...(categories || []), data])
+    setNewCat('')
+  }
+  async function deleteCategory(id) {
+    if (!window.confirm('Видалити категорію? Товари з цією категорією стануть без категорії.')) return
+    const { error } = await supabase.from('categories').delete().eq('id', id)
+    if (error) { alert(error.message); return }
+    // знімаємо категорію з форми, якщо її щойно видалили
+    setForm(f => f.category_id === id ? { ...f, category_id: null } : f)
+    setCategories(c => c.filter(x => x.id !== id))
+    // локально, товари не чіпаємо — при наступному loadAll підтягнеться
   }
 
   function removeGalleryImage(idx) {
@@ -165,49 +141,51 @@ export default function Admin() {
             <h1 className="h1">Адмін • Товари</h1>
             <div className="flex gap-2">
               <button className="btn-outline" onClick={startCreate}>Новий товар</button>
-              <button className="btn-ghost" onClick={quickAddCategory}>+ Категорія</button>
             </div>
           </div>
 
-          {/* форма */}
+          {/* Форма товару */}
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-3">
-              <div>
-                <div className="text-sm text-muted mb-1">Назва</div>
+              <Field label="Назва">
                 <input className="input" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Назва товару" />
-              </div>
-              <div>
-                <div className="text-sm text-muted mb-1">Категорія</div>
+              </Field>
+
+              <Field label="Категорія">
                 <select className="input" value={form.category_id ?? ''} onChange={e=>setForm({...form, category_id: e.target.value || null})}>
                   <option value="">— без категорії —</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+              </Field>
+
+              <div className="flex gap-2">
+                <input className="input flex-1" placeholder="Нова категорія"
+                       value={newCat} onChange={e=>setNewCat(e.target.value)} />
+                <button className="btn-ghost" onClick={addCategory}>+ Додати</button>
               </div>
-              <div>
-                <div className="text-sm text-muted mb-1">Дроп-ціна (грн)</div>
-                <input className="input" type="number" value={form.price_dropship} onChange={e=>setForm({...form, price_dropship:e.target.value})} placeholder="0" />
-              </div>
-              <div>
-                <div className="text-sm text-muted mb-1">Опис</div>
-                <textarea className="input" rows={6} value={form.description} onChange={e=>setForm({...form, description:e.target.value})} placeholder="Опис товару"></textarea>
-              </div>
+
+              <Field label="Дроп-ціна (грн)">
+                <input className="input" type="number" value={form.price_dropship}
+                       onChange={e=>setForm({...form, price_dropship:e.target.value})} placeholder="0" />
+              </Field>
+
+              <Field label="Опис">
+                <textarea className="input" rows={6} value={form.description}
+                          onChange={e=>setForm({...form, description:e.target.value})} placeholder="Опис товару"></textarea>
+              </Field>
             </div>
 
             <div className="space-y-4">
-              {/* Головне фото */}
-              <div>
-                <div className="text-sm text-muted mb-1">Головне фото</div>
+              <Field label="Головне фото">
                 {form.image_url && (
                   <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
                     <img src={form.image_url} alt="" className="w-full h-full object-contain" />
                   </div>
                 )}
                 <input className="input" type="file" accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
-              </div>
+              </Field>
 
-              {/* Галерея */}
-              <div>
-                <div className="text-sm text-muted mb-1">Галерея (можна кілька)</div>
+              <Field label="Галерея (можна кілька)">
                 {Array.isArray(form.gallery_json) && form.gallery_json.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-2">
                     {form.gallery_json.map((src, idx) => (
@@ -225,7 +203,7 @@ export default function Admin() {
                   </div>
                 )}
                 <input className="input" type="file" accept="image/*" multiple onChange={e=>setGalleryFiles(Array.from(e.target.files || []))} />
-              </div>
+              </Field>
 
               <div className="flex gap-2">
                 <button className="btn-primary" onClick={save} disabled={loading}>{form.id ? 'Зберегти' : 'Створити'}</button>
@@ -236,7 +214,7 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* список */}
+      {/* Фільтри + список товарів */}
       <div className="card mt-6">
         <div className="card-body">
           <div className="flex flex-wrap items-center gap-3 mb-3">
@@ -287,6 +265,57 @@ export default function Admin() {
           </div>
         </div>
       </div>
+
+      {/* КАТЕГОРІЇ */}
+      <div className="card mt-6">
+        <div className="card-body">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h2 className="h2">Категорії</h2>
+            <div className="flex gap-2">
+              <input className="input input-xs" placeholder="Нова категорія" value={newCat} onChange={e=>setNewCat(e.target.value)} />
+              <button className="btn-primary input-xs" onClick={addCategory}>Додати</button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-[14px]">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="py-2 pr-3">Назва</th>
+                  <th className="py-2 pr-3">Товарів</th>
+                  <th className="py-2 pr-3 w-[120px]">Дії</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(categories || []).map(c => {
+                  const count = products.filter(p => p.category_id === c.id).length
+                  return (
+                    <tr key={c.id} className="border-t border-slate-100">
+                      <td className="py-3 pr-3">{c.name}</td>
+                      <td className="py-3 pr-3">{count}</td>
+                      <td className="py-3 pr-3">
+                        <button className="btn-ghost input-xs" onClick={()=>deleteCategory(c.id)}>Видалити</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {(!categories || categories.length===0) && (
+                  <tr><td colSpan={3} className="py-6 text-center text-muted">Немає категорій</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <div className="text-sm text-muted mb-1">{label}</div>
+      {children}
     </div>
   )
 }
