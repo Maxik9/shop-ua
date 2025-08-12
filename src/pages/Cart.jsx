@@ -4,10 +4,13 @@ import { supabase } from '../supabaseClient'
 
 export default function Cart() {
   const cart = useCart()
-  const items   = Array.isArray(cart?.items) ? cart.items : []
-  const remove  = typeof cart?.remove === 'function' ? cart.remove : () => {}
-  const setPrice= typeof cart?.setPrice === 'function' ? cart.setPrice : () => {}
-  const totalFn = typeof cart?.total === 'function' ? cart.total : () => 0
+  const items    = Array.isArray(cart?.items) ? cart.items : []
+  const remove   = cart?.remove ?? (()=>{})
+  const setPrice = cart?.setPrice ?? (()=>{})
+  const setQty   = cart?.setQty ?? (()=>{})
+  const inc      = cart?.inc ?? (()=>{})
+  const dec      = cart?.dec ?? (()=>{})
+  const totalFn  = typeof cart?.total === 'function' ? cart.total : () => 0
 
   const [form, setForm] = useState({
     recipient_name: '',
@@ -36,7 +39,7 @@ export default function Cart() {
         await supabase.from('orders').insert({
           user_id,
           product_id: it.id,
-          qty: 1,
+          qty: it.qty || 1,
           my_price: Number(it.my_price ?? it.price_dropship ?? 0),
           recipient_name: form.recipient_name,
           recipient_phone: form.recipient_phone,
@@ -57,40 +60,59 @@ export default function Cart() {
       <div className="card">
         {items.length === 0 && <div className="p-5 text-muted">Кошик порожній.</div>}
 
-        {items.map((it) => (
-          <div key={it.id} className="flex items-center gap-4 p-4 border-b last:border-b-0 border-slate-100">
-            <div className="w-[110px] h-[80px] overflow-hidden rounded-xl bg-slate-100">
-              {it?.image_url && <img src={it.image_url} alt={it?.name || ''} className="w-full h-full object-cover" />}
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold truncate">{it?.name || 'Товар'}</div>
-              <div className="text-muted text-sm">
-                Дроп-ціна: {Number(it?.price_dropship ?? 0).toFixed(2)} ₴
+        {items.map((it) => {
+          const unit = Number(it?.my_price ?? it?.price_dropship ?? 0)
+          const line = unit * (it?.qty || 1)
+          return (
+            <div key={it.id} className="flex items-center gap-4 p-4 border-b last:border-b-0 border-slate-100">
+              <div className="w-[110px] h-[80px] overflow-hidden rounded-xl bg-slate-100">
+                {it?.image_url && <img src={it.image_url} alt={it?.name || ''} className="w-full h-full object-cover" />}
               </div>
-            </div>
 
-            {/* Ввід ціни продажу */}
-            <div className="flex items-center gap-2">
-              <div className="text-sm text-muted">Сума продажу (грн)</div>
-              <input
-                className="input input-xs w-[120px] text-right"
-                value={String(Number(it?.my_price ?? it?.price_dropship ?? 0))}
-                onChange={e => setPrice(it.id, e.target.value)}
-                inputMode="numeric"
-              />
-            </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{it?.name || 'Товар'}</div>
+                <div className="text-muted text-sm">Дроп-ціна: {Number(it?.price_dropship ?? 0).toFixed(2)} ₴</div>
+              </div>
 
-            <button
-              aria-label="Прибрати"
-              onClick={() => remove(it.id)}
-              className="w-9 h-9 rounded-full bg-white border border-slate-300 hover:bg-slate-50 flex items-center justify-center"
-              title="Прибрати"
-            >
-              ×
-            </button>
-          </div>
-        ))}
+              {/* Ціна продажу (за 1 шт) */}
+              <div className="flex items-center gap-2">
+                <div className="text-sm text-muted">Ціна продажу</div>
+                <input
+                  className="input input-xs w-[110px] text-right"
+                  value={String(unit)}
+                  onChange={e => setPrice(it.id, e.target.value)}
+                  inputMode="numeric"
+                />
+                <div className="text-sm text-muted">грн/шт</div>
+              </div>
+
+              {/* Кількість */}
+              <div className="flex items-center gap-1">
+                <button className="btn-ghost input-xs" onClick={()=>dec(it.id)} aria-label="Зменшити">−</button>
+                <input
+                  className="input input-xs w-[64px] text-center"
+                  value={String(it?.qty || 1)}
+                  onChange={e => setQty(it.id, e.target.value)}
+                  inputMode="numeric"
+                />
+                <button className="btn-ghost input-xs" onClick={()=>inc(it.id)} aria-label="Збільшити">+</button>
+              </div>
+
+              {/* Підсумок по позиції */}
+              <div className="w-[120px] text-right font-semibold">{line.toFixed(2)} ₴</div>
+
+              {/* Видалити */}
+              <button
+                aria-label="Прибрати"
+                onClick={() => remove(it.id)}
+                className="w-9 h-9 rounded-full bg-white border border-slate-300 hover:bg-slate-50 flex items-center justify-center"
+                title="Прибрати"
+              >
+                ×
+              </button>
+            </div>
+          )
+        })}
       </div>
 
       <div className="mt-4 text-[18px]">
