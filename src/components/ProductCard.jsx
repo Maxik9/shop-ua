@@ -3,21 +3,27 @@ import { useCart } from '../context/CartContext'
 
 export default function ProductCard({ product }) {
   const { add } = useCart()
-
   return (
-    <div style={{border:'1px solid #eee', padding:12, borderRadius:8}}>
-      <Link to={`/product/${product.id}`} style={{textDecoration:'none', color:'inherit'}}>
-        <div style={{width:'100%', aspectRatio:'1 / 1', overflow:'hidden', borderRadius:6, background:'#f6f6f6'}}>
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <Link to={`/product/${product.id}`} className="block">
+        <div className="w-full aspect-square bg-slate-100">
           {product.image_url && (
-            <img src={product.image_url} alt={product.name} style={{width:'100%', height:'100%', objectFit:'cover', display:'block'}} />
+            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
           )}
         </div>
-        <h3 style={{margin:'8px 0'}}>{product.name}</h3>
       </Link>
-
-      <div style={{display:'flex', justifyContent:'space-between', marginTop:8}}>
-        <span>Дроп-ціна: <b>{Number(product.price_dropship).toFixed(2)} ₴</b></span>
-        <button onClick={() => add(product)}>До кошика</button>
+      <div className="p-4">
+        <Link to={`/product/${product.id}`} className="block">
+          <h3 className="font-semibold">{product.name}</h3>
+        </Link>
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-sm text-slate-600">
+            Дроп-ціна: <b className="text-slate-900">{Number(product.price_dropship).toFixed(2)} ₴</b>
+          </span>
+          <button onClick={() => add(product)} className="inline-flex items-center justify-center rounded-lg px-4 h-9 text-sm bg-indigo-600 text-white hover:bg-indigo-700">
+            До кошика
+          </button>
+        </div>
       </div>
     </div>
   )

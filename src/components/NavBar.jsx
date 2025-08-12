@@ -5,12 +5,10 @@ import { useCart } from '../context/CartContext'
 
 export default function NavBar() {
   const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(null) // null = ще не знаємо, true/false = відомо
+  const [isAdmin, setIsAdmin] = useState(null)
   const { count } = useCart()
 
   useEffect(() => {
-    let unsub = () => {}
-
     async function init() {
       const { data } = await supabase.auth.getSession()
       const u = data.session?.user ?? null
@@ -18,50 +16,47 @@ export default function NavBar() {
       if (u) {
         const { data: ok } = await supabase.rpc('is_admin', { u: u.id })
         setIsAdmin(Boolean(ok))
-      } else {
-        setIsAdmin(false)
-      }
+      } else setIsAdmin(false)
     }
     init()
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
-      const u = session?.user ?? null
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      const u = s?.user ?? null
       setUser(u)
-      if (u) {
-        supabase.rpc('is_admin', { u: u.id }).then(({ data }) => setIsAdmin(Boolean(data)))
-      } else {
-        setIsAdmin(false)
-      }
+      if (u) supabase.rpc('is_admin', { u: u.id }).then(({ data }) => setIsAdmin(Boolean(data)))
+      else setIsAdmin(false)
     })
-    unsub = () => sub.subscription.unsubscribe()
-
-    return () => unsub()
+    return () => sub.subscription.unsubscribe()
   }, [])
 
-  async function logout() {
-    await supabase.auth.signOut()
-  }
+  async function logout(){ await supabase.auth.signOut() }
 
   return (
-    <nav style={{display:'flex', gap:12, padding:12, borderBottom:'1px solid #eee', alignItems:'center'}}>
-      <Link to="/">Каталог</Link>
-      {user && <Link to="/dashboard">Мої замовлення</Link>}
-      {user && <Link to="/cart">Кошик{count ? ` (${count})` : ''}</Link>}
+    <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+      <div className="max-w-6xl mx-auto px-3 h-14 flex items-center gap-4">
+        <Link to="/" className="font-semibold text-indigo-600">Drop-UA</Link>
 
-      {/* Адмінські лінки показуємо лише коли точно знаємо, що це адмін */}
-      {isAdmin === true && <Link to="/admin">Адмін</Link>}
-      {isAdmin === true && <Link to="/admin/orders">Замовлення (адмін)</Link>}
+        <nav className="flex items-center gap-4 text-sm">
+          <Link to="/" className="hover:text-indigo-600">Каталог</Link>
+          {user && <Link to="/dashboard" className="hover:text-indigo-600">Мої замовлення</Link>}
+          {user && (
+            <Link to="/cart" className="hover:text-indigo-600">
+              Кошик {count ? <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-700">{count}</span> : null}
+            </Link>
+          )}
+          {isAdmin === true && <Link to="/admin" className="hover:text-indigo-600">Адмін</Link>}
+          {isAdmin === true && <Link to="/admin/orders" className="hover:text-indigo-600">Замовлення (адмін)</Link>}
+          <Link to="/about" className="hover:text-indigo-600">Про нас</Link>
+          <Link to="/contacts" className="hover:text-indigo-600">Контакти</Link>
+        </nav>
 
-      <Link to="/about">Про нас</Link>
-      <Link to="/contacts">Контакти</Link>
-
-      <div style={{marginLeft:'auto'}}>
-        {user ? (
-          <button onClick={logout}>Вийти</button>
-        ) : (
-          <Link to="/login">Вхід / Реєстрація</Link>
-        )}
+        <div className="ml-auto">
+          {user ? (
+            <button onClick={logout} className="inline-flex items-center justify-center rounded-lg px-4 h-9 text-sm border border-slate-300 bg-white hover:bg-slate-50">Вийти</button>
+          ) : (
+            <Link to="/login" className="inline-flex items-center justify-center rounded-lg px-4 h-9 text-sm bg-indigo-600 text-white hover:bg-indigo-700">Вхід / Реєстрація</Link>
+          )}
+        </div>
       </div>
-    </nav>
+    </header>
   )
 }
