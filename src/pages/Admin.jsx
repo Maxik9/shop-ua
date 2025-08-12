@@ -7,15 +7,15 @@ const BUCKET = 'product-images'
 
 export default function Admin() {
   const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(null) // null | true | false
+  const [isAdmin, setIsAdmin] = useState(null)
   const [products, setProducts] = useState([])
+  const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(false)
 
-  // форма товара
-  const emptyForm = { id: null, name: '', description: '', image_url: '', price_dropship: '' }
+  const emptyForm = { id: null, name: '', description: '', image_url: '', price_dropship: '', category_id: '' }
   const [form, setForm] = useState(emptyForm)
+  const [newCat, setNewCat] = useState('')
 
-  // файлы для загрузки
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -26,25 +26,24 @@ export default function Admin() {
       if (u) {
         const { data: ok } = await supabase.rpc('is_admin', { u: u.id })
         setIsAdmin(Boolean(ok))
-        if (ok) loadProducts()
-      } else {
-        setIsAdmin(false)
-      }
+        if (ok) { loadProducts(); loadCategories() }
+      } else setIsAdmin(false)
     }
     init()
-
-    const sub = supabase.auth.onAuthStateChange((_e, session) => {
-      const u = session?.user ?? null
-      setUser(u)
-    })
+    const sub = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null))
     return () => sub.data.subscription.unsubscribe()
   }, [])
+
+  async function loadCategories(){
+    const { data } = await supabase.from('categories').select('*').order('name', { ascending: true })
+    setCategories(data || [])
+  }
 
   async function loadProducts() {
     setLoading(true)
     const { data, error } = await supabase
       .from('products')
-      .select('*, product_images(*)')
+      .select('*, product_images(*), categories:category_id(name)')
       .order('created_at', { ascending: false })
     if (!error) setProducts(data || [])
     setLoading(false)
@@ -53,6 +52,16 @@ export default function Admin() {
   function onChange(e) {
     const { name, value } = e.target
     setForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  async function createCategory(e){
+    e.preventDefault()
+    const name = newCat.trim()
+    if(!name) return
+    const { error } = await supabase.from('categories').insert({ name })
+    if(error){ alert('Помилка створення категорії: ' + error.message); return }
+    setNewCat('')
+    await loadCategories()
   }
 
   async function onSave(e) {
@@ -65,32 +74,23 @@ export default function Admin() {
       description: form.description.trim() || null,
       image_url: form.image_url.trim() || null,
       price_dropship: Number(form.price_dropship),
+      category_id: form.category_id || null,
     }
 
     let error, newId = form.id
     if (form.id) {
       ;({ error } = await supabase.from('products').update(payload).eq('id', form.id))
     } else {
-      const { data, error: insErr } = await supabase
-        .from('products')
-        .insert(payload)
-        .select('id')
-        .single()
+      const { data, error: insErr } = await supabase.from('products').insert(payload).select('id').single()
       error = insErr
       newId = data?.id || null
     }
 
-    if (error) {
-      setLoading(false)
-      alert('Помилка збереження: ' + error.message)
-      return
-    }
+    if (error) { setLoading(false); alert('Помилка збереження: ' + error.message); return }
 
-    // загрузка выбранных фото в Storage + запись ссылок в product_images
     const files = fileInputRef.current?.files
     if (files && files.length && newId) {
       await uploadImagesAndLink(newId, files)
-      // если нет обложки — возьмём первое фото
       if (!form.image_url) {
         const first = await getFirstImageUrl(newId)
         if (first) await supabase.from('products').update({ image_url: first }).eq('id', newId)
@@ -107,33 +107,13 @@ export default function Admin() {
     for (const file of fileList) {
       const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
       const path = `${productId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-
-      const { error: upErr } = await supabase
-        .storage
-        .from(BUCKET)
-        .upload(path, file, { cacheControl: '3600', upsert: false })
-
-      if (upErr) {
-        console.error('Upload error:', upErr)
-        alert('Помилка завантаження: ' + upErr.message)
-        continue
-      }
-
+      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { cacheControl: '3600', upsert: false })
+      if (upErr) { alert('Помилка завантаження: ' + upErr.message); continue }
       const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
       const url = data?.publicUrl
-      if (!url) {
-        alert('Не вдалося отримати публічне посилання на зображення')
-        continue
-      }
-
-      const { error: linkErr } = await supabase
-        .from('product_images')
-        .insert({ product_id: productId, url })
-
-      if (linkErr) {
-        console.error('DB link error:', linkErr)
-        alert('Помилка збереження посилання на зображення: ' + linkErr.message)
-      }
+      if (!url) { alert('Не вдалося отримати публічне посилання'); continue }
+      const { error: linkErr } = await supabase.from('product_images').insert({ product_id: productId, url })
+      if (linkErr) { alert('Помилка збереження посилання: ' + linkErr.message) }
     }
   }
 
@@ -156,6 +136,7 @@ export default function Admin() {
       description: p.description ?? '',
       image_url: p.image_url ?? '',
       price_dropship: String(p.price_dropship ?? ''),
+      category_id: p.category_id || '',
     })
     if (fileInputRef.current) fileInputRef.current.value = ''
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -170,34 +151,40 @@ export default function Admin() {
   }
 
   if (isAdmin === null) return <p style={{ padding: 24 }}>Перевірка доступу…</p>
-  if (!isAdmin) {
-    return (
-      <div style={{ padding: 24 }}>
-        <p>Доступ лише для адміна.</p>
-        <Link to="/">На головну</Link>
-      </div>
-    )
-  }
+  if (!isAdmin) return (<div style={{ padding: 24 }}><p>Доступ лише для адміна.</p><Link to="/">На головну</Link></div>)
 
   return (
     <div style={{ padding: 24, maxWidth: 980, margin: '0 auto' }}>
       <h2 style={{ marginBottom: 12 }}>{form.id ? 'Редагувати товар' : 'Додати товар'}</h2>
+
+      {/* Блок керування категоріями */}
+      <form onSubmit={createCategory} style={{ display:'flex', gap:8, alignItems:'center', marginBottom:16 }}>
+        <input placeholder="Нова категорія (назва)" value={newCat} onChange={e=>setNewCat(e.target.value)} />
+        <button type="submit">Додати категорію</button>
+      </form>
+
       <form onSubmit={onSave} style={{ display: 'grid', gap: 12, marginBottom: 28 }}>
         <input name="name" placeholder="Назва *" value={form.name} onChange={onChange} required />
         <textarea name="description" placeholder="Опис (необов’язково)" value={form.description} onChange={onChange} rows={3} />
         <input name="image_url" placeholder="Обкладинка (URL, необов’язково)" value={form.image_url} onChange={onChange} />
         <input name="price_dropship" placeholder="Дроп-ціна (грн) *" type="number" step="0.01" min="0" value={form.price_dropship} onChange={onChange} required />
 
-        {/* множественная загрузка картинок */}
+        {/* селект категорії */}
+        <select name="category_id" value={form.category_id} onChange={onChange}>
+          <option value="">— Без категорії —</option>
+          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        {/* множинна загрузка фото */}
         <div>
           <label style={{display:'block', marginBottom:6}}>Додаткові фото (можна кілька):</label>
           <input ref={fileInputRef} type="file" accept="image/*" multiple />
-          <small style={{color:'#666'}}>Фото збережуться в Storage після збереження товару.</small>
+          <small style={{color:'#666'}}>Фото збережуться у Storage після збереження товару.</small>
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button type="submit" disabled={loading}>{form.id ? 'Оновити' : 'Додати'}</button>
-          {form.id && <button type="button" onClick={() => { setForm(emptyForm); if (fileInputRef.current) fileInputRef.current.value='' }}>Скасувати редагування</button>}
+          {form.id && <button type="button" onClick={() => { setForm(emptyForm); if (fileInputRef.current) fileInputRef.current.value='' }}>Скасувати</button>}
         </div>
       </form>
 
@@ -215,7 +202,8 @@ export default function Admin() {
               )}
               <div>
                 <div style={{ fontWeight: 600 }}>{p.name}</div>
-                {p.description && <div style={{ color: '#666', fontSize: 14, marginTop: 4 }}>{p.description}</div>}
+                {p.categories?.name && <div style={{ color:'#444', fontSize:13, marginTop:4 }}>Категорія: <b>{p.categories.name}</b></div>}
+                {p.description && <div style={{ color:'#666', fontSize: 14, marginTop: 4 }}>{p.description}</div>}
                 <div style={{ marginTop: 6 }}>Дроп-ціна: <b>{Number(p.price_dropship).toFixed(2)} ₴</b></div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -224,7 +212,6 @@ export default function Admin() {
               </div>
             </div>
 
-            {/* перетаскивание и сортировка фото */}
             {p.product_images?.length ? (
               <ReorderImages product={p} onChanged={loadProducts} />
             ) : null}
@@ -236,7 +223,6 @@ export default function Admin() {
   )
 }
 
-/** Компонент сортировки фото перетягиванием */
 function ReorderImages({ product, onChanged }) {
   const [list, setList] = useState(product.product_images || [])
   const dragIndex = useRef(null)
@@ -256,7 +242,6 @@ function ReorderImages({ product, onChanged }) {
   }
 
   async function saveOrder(){
-    // проставим sort_order по текущему порядку
     const updates = list.map((img, index) =>
       supabase.from('product_images').update({ sort_order: index }).eq('id', img.id)
     )

@@ -132,9 +132,9 @@ export default function Product() {
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={addToCart} style={{ padding: '10px 16px' }}>Додати в кошик</button>
-          <button onClick={() => { addToCart(); nav('/cart') }} style={{ padding: '10px 16px' }}>До кошика</button>
-        </div>
+  <button onClick={addToCart} style={{ padding: '10px 16px' }}>Додати в кошик</button>
+  <button onClick={() => { addToCart(); nav('/cart') }} style={{ padding: '10px 16px' }}>Замовити</button>
+</div>
       </div>
     </div>
   )
