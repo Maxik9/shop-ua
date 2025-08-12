@@ -1,6 +1,5 @@
-// src/pages/Product.jsx
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
@@ -9,44 +8,98 @@ export default function Product() {
   const navigate = useNavigate()
   const { add } = useCart()
 
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [product, setProduct] = useState(null)
   const [gallery, setGallery] = useState([])
   const [idx, setIdx] = useState(0)
 
   useEffect(() => {
+    let mounted = true
     ;(async () => {
-      // витягуємо конкретні колонки, щоб точно було gallery_json
-      const { data, error } = await supabase
-        .from('products')
-        .select('id,name,description,price_dropship,image_url,gallery_json')
-        .eq('id', id)
-        .single()
-      if (error) { console.error(error); return }
+      try {
+        setLoading(true)
+        setError('')
 
-      setProduct(data)
+        // витягуємо явні колонки (gallery_json може бути відсутня — це ок)
+        const { data, error } = await supabase
+          .from('products')
+          .select('id,name,description,price_dropship,image_url,gallery_json')
+          .eq('id', id)
+          .maybeSingle()
 
-      // НОРМАЛІЗУЄМО галерею:
-      let g = []
-      const raw = data?.gallery_json
-      if (Array.isArray(raw)) g = raw
-      else if (typeof raw === 'string' && raw.trim()) {
-        try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) g = parsed } catch {}
+        if (error) {
+          console.error('Supabase error:', error)
+          throw error
+        }
+        if (!data) {
+          throw new Error('Товар не знайдено')
+        }
+
+        // нормалізуємо галерею
+        let g = []
+        const raw = data.gallery_json
+        if (Array.isArray(raw)) g = raw
+        else if (typeof raw === 'string' && raw.trim()) {
+          try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) g = parsed
+          } catch {}
+        }
+
+        const full = [data.image_url, ...g].filter(Boolean)
+        const uniq = Array.from(new Set(full))
+
+        if (mounted) {
+          setProduct(data)
+          setGallery(uniq)
+          setIdx(0)
+        }
+      } catch (e) {
+        if (mounted) {
+          setError(e.message || 'Помилка завантаження товару')
+        }
+      } finally {
+        if (mounted) setLoading(false)
       }
-
-      const full = [data?.image_url, ...g].filter(Boolean)
-      // приберемо дублікати
-      const uniq = Array.from(new Set(full))
-      setGallery(uniq)
-      setIdx(0)
     })()
+    return () => { mounted = false }
   }, [id])
 
-  if (!product) return <div className="container-page my-6">Завантаження…</div>
+  if (loading) {
+    return (
+      <div className="container-page my-6">
+        Завантаження…
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="container-page my-6">
+        <div className="card">
+          <div className="card-body">
+            <div className="h2 mb-2">Помилка</div>
+            <p className="text-muted mb-4">{error}</p>
+            <Link to="/" className="btn-outline">Повернутися до каталогу</Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!product) {
+    return (
+      <div className="container-page my-6">
+        <div className="text-muted">Товар не знайдено.</div>
+      </div>
+    )
+  }
 
   const cur = gallery[idx] || product.image_url
 
-  function prev()  { if (gallery.length) setIdx(v => (v - 1 + gallery.length) % gallery.length) }
-  function next()  { if (gallery.length) setIdx(v => (v + 1) % gallery.length) }
+  function prev() { if (gallery.length) setIdx(v => (v - 1 + gallery.length) % gallery.length) }
+  function next() { if (gallery.length) setIdx(v => (v + 1) % gallery.length) }
 
   return (
     <div className="container-page my-6">
@@ -86,7 +139,9 @@ export default function Product() {
         <div>
           <h1 className="h1 mb-2">{product.name}</h1>
           {product.description && (
-            <p className="text-[16px] leading-7 text-slate-700 mb-4 whitespace-pre-wrap">{product.description}</p>
+            <p className="text-[16px] leading-7 text-slate-700 mb-4 whitespace-pre-wrap">
+              {product.description}
+            </p>
           )}
 
           <div className="text-[18px] mb-5">
