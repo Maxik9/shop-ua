@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import NavBar from './components/NavBar'
@@ -10,7 +10,7 @@ import Admin from './pages/Admin'
 import AdminOrders from './pages/AdminOrders'
 import { CartProvider } from './context/CartContext'
 
-// Маршрут, який доступний тільки авторизованим
+// тільки для авторизованих
 function PrivateRoute({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -20,11 +20,11 @@ function PrivateRoute({ children }) {
       setUser(data.session?.user ?? null)
       setLoading(false)
     })
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: auth } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
     return () => {
-      listener.subscription.unsubscribe()
+      auth?.subscription?.unsubscribe?.()
     }
   }, [])
 
@@ -35,22 +35,20 @@ function PrivateRoute({ children }) {
 export default function App() {
   return (
     <CartProvider>
-      <Router>
-        <NavBar />
-        <Routes>
-          <Route path="/" element={<Catalog />} />
-          <Route path="/product/:id" element={<Product />} />
-          <Route path="/cart" element={<Cart />} />
-          <Route path="/login" element={<Login />} />
+      <NavBar />
+      <Routes>
+        <Route path="/" element={<Catalog />} />
+        <Route path="/product/:id" element={<Product />} />
+        <Route path="/cart" element={<Cart />} />
+        <Route path="/login" element={<Login />} />
 
-          {/* Адмін сторінки */}
-          <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
-          <Route path="/admin/orders" element={<PrivateRoute><AdminOrders /></PrivateRoute>} />
+        {/* Адмін */}
+        <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
+        <Route path="/admin/orders" element={<PrivateRoute><AdminOrders /></PrivateRoute>} />
 
-          {/* Якщо сторінка не знайдена — на головну */}
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </Router>
+        {/* 404 → головна */}
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
     </CartProvider>
   )
 }
