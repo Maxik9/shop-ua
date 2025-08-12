@@ -11,6 +11,7 @@ import Cart from './pages/Cart'              // ⟵ НОВЕ
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { CartProvider } from './context/CartContext' // ⟵ НОВЕ
+import Admin from './pages/Admin'
 
 function PrivateRoute({ children }) {
   const [ready, setReady] = useState(false)
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
         <Route path="/about" element={<About />} />
         <Route path="/contacts" element={<Contacts />} />
+        <Route path="/admin/orders" element={<PrivateRoute><AdminOrders /></PrivateRoute>} />
       </Routes>
     </CartProvider>
   )
