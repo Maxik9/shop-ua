@@ -4,28 +4,38 @@ import { useCart } from '../context/CartContext'
 export default function ProductCard({ product }) {
   const { add } = useCart()
 
-  const card = {background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, boxShadow:'0 1px 2px rgba(0,0,0,.04)', overflow:'hidden'}
-  const body = {padding:12}
-  const btn  = {height:36, padding:'0 12px', borderRadius:8, background:'#4f46e5', color:'#fff', border:'none', cursor:'pointer'}
-
   return (
-    <div style={card}>
-      <Link to={`/product/${product.id}`} style={{display:'block'}}>
-        <div style={{width:'100%', aspectRatio:'1 / 1', background:'#f1f5f9', overflow:'hidden'}}>
+    <div className="card overflow-hidden">
+      <Link to={`/product/${product.id}`} className="block">
+        <div className="w-full aspect-square bg-slate-100">
           {product.image_url && (
-            <img src={product.image_url} alt={product.name} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+            <img
+              src={product.image_url}
+              alt={product.name}
+              className="w-full h-full object-cover"
+            />
           )}
         </div>
       </Link>
-      <div style={body}>
-        <Link to={`/product/${product.id}`} style={{textDecoration:'none', color:'#111827'}}>
-          <h3 style={{margin:'0 0 8px 0', fontWeight:600}}>{product.name}</h3>
+
+      <div className="card-body">
+        <Link to={`/product/${product.id}`} className="block">
+          <h3 className="font-semibold text-[16px] leading-5 line-clamp-2 min-h-[40px]">
+            {product.name}
+          </h3>
         </Link>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-          <span style={{fontSize:14, color:'#6b7280'}}>
-            Дроп-ціна: <b style={{color:'#111827'}}>{Number(product.price_dropship).toFixed(2)} ₴</b>
+
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-muted text-[14px]">
+            Дроп-ціна:{' '}
+            <b className="price text-[16px] text-slate-900">
+              {Number(product.price_dropship).toFixed(2)} ₴
+            </b>
           </span>
-          <button onClick={() => add(product)} style={btn}>До кошика</button>
+
+          <button onClick={() => add(product)} className="btn-primary">
+            До кошика
+          </button>
         </div>
       </div>
     </div>

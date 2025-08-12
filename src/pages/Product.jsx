@@ -1,159 +1,98 @@
-// src/pages/Product.jsx
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
 export default function Product() {
   const { id } = useParams()
-  const nav = useNavigate()
+  const navigate = useNavigate()
   const { add } = useCart()
 
   const [product, setProduct] = useState(null)
-  const [images, setImages] = useState([])
-  const [index, setIndex] = useState(0)
-  const startX = useRef(null)
+  const [gallery, setGallery] = useState([])
+  const [i, setI] = useState(0)
 
   useEffect(() => {
-    async function load() {
-      const { data: p, error: pe } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', id)
-        .single()
-      if (pe) { console.warn(pe); return }
-      setProduct(p)
-
-      const { data: imgs, error: ie } = await supabase
-        .from('product_images')
-        .select('*')
-        .eq('product_id', id)
-        .order('sort_order', { ascending: true })
-        .order('created_at', { ascending: true })
-      if (ie) { console.warn(ie) }
-      setImages(imgs || [])
-      setIndex(0)
-    }
     load()
+    // eslint-disable-next-line
   }, [id])
 
-  const gallery = useMemo(() => {
-    const cover = product?.image_url ? [{ id: 'cover', url: product.image_url }] : []
-    return [...cover, ...images]
-  }, [product, images])
-
-  function prev() {
-    if (gallery.length) setIndex(v => (v - 1 + gallery.length) % gallery.length)
-  }
-  function next() {
-    if (gallery.length) setIndex(v => (v + 1) % gallery.length)
-  }
-  function keyNav(e) {
-    if (e.key === 'ArrowLeft') prev()
-    if (e.key === 'ArrowRight') next()
+  async function load() {
+    const { data } = await supabase.from('products').select('*').eq('id', id).single()
+    setProduct(data || null)
+    const g = (data?.gallery_json && Array.isArray(data.gallery_json)) ? data.gallery_json : []
+    const arr = (data?.image_url ? [data.image_url, ...g] : g).slice(0, 12)
+    setGallery(arr)
+    setI(0)
   }
 
-  function onPointerDown(e) {
-    startX.current = e.clientX ?? e.touches?.[0]?.clientX ?? null
-  }
-  function onPointerUp(e) {
-    const endX = e.clientX ?? e.changedTouches?.[0]?.clientX ?? null
-    if (startX.current == null || endX == null) return
-    const dx = endX - startX.current
-    if (Math.abs(dx) > 40) { dx > 0 ? prev() : next() }
-    startX.current = null
-  }
+  if (!product) return <div className="container-page my-6">Завантаження…</div>
 
-  if (!product) return <div style={{ padding: 24 }}>Завантаження…</div>
-
-  function addToCart() { add(product) }
+  const cur = gallery[i] || product.image_url
 
   return (
-    <div style={{ maxWidth: 980, margin: '24px auto', padding: '0 12px', display: 'grid', gap: 24, gridTemplateColumns: '1fr 1fr' }}>
-      {/* ГАЛЕРЕЯ */}
-      <div onKeyDown={keyNav} tabIndex={0} style={{ outline: 'none' }}>
-        <div
-          onMouseDown={onPointerDown}
-          onMouseUp={onPointerUp}
-          onTouchStart={onPointerDown}
-          onTouchEnd={onPointerUp}
-          style={{ position: 'relative' }}
-        >
-          <div style={{
-            width: '100%', height: 420, background: '#fff',
-            border: '1px solid #eee', borderRadius: 8,
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            {gallery[index] ? (
-              <img
-                src={gallery[index].url}
-                alt={product.name}
-                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
-              />
-            ) : (
-              <div style={{ width: '100%', height: '100%', background: '#f6f6f6', borderRadius: 8 }} />
-            )}
+    <div className="container-page my-6">
+      <div className="grid lg:grid-cols-2 gap-8">
+        {/* Галерея */}
+        <div className="relative">
+          <div className="card overflow-hidden">
+            <div className="w-full aspect-[4/3] bg-slate-100">
+              {cur && <img src={cur} alt={product.name} className="w-full h-full object-contain" />}
+            </div>
           </div>
 
+          {/* Стрелки */}
           {gallery.length > 1 && (
             <>
-              <button aria-label="Попереднє фото" onClick={prev} style={navBtnStyle('left')}>‹</button>
-              <button aria-label="Наступне фото" onClick={next} style={navBtnStyle('right')}>›</button>
+              <button
+                className="btn-ghost absolute left-[-10px] top-1/2 -translate-y-1/2"
+                onClick={() => setI((i - 1 + gallery.length) % gallery.length)}
+              >‹</button>
+              <button
+                className="btn-ghost absolute right-[-10px] top-1/2 -translate-y-1/2"
+                onClick={() => setI((i + 1) % gallery.length)}
+              >›</button>
             </>
+          )}
+
+          {/* Превью */}
+          {gallery.length > 1 && (
+            <div className="mt-3 flex gap-2 flex-wrap">
+              {gallery.map((src, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setI(idx)}
+                  className={`overflow-hidden rounded-xl border ${i===idx ? 'border-indigo-500' : 'border-slate-200'}`}
+                  style={{width:92, height:92, background:'#f1f5f9'}}
+                >
+                  <img src={src} alt="" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
-        {gallery.length > 1 && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, overflowX: 'auto' }}>
-            {gallery.map((g, i) => (
-              <div
-                key={g.id || i}
-                onClick={() => setIndex(i)}
-                style={{
-                  width: 80, height: 80, borderRadius: 6, overflow: 'hidden',
-                  border: i === index ? '2px solid #333' : '1px solid #ddd',
-                  cursor: 'pointer', background: '#f6f6f6'
-                }}
-                title="Натисніть, щоб переглянути"
-              >
-                <img src={g.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              </div>
-            ))}
+        {/* Инфо */}
+        <div>
+          <h1 className="h1 mb-2">{product.name}</h1>
+          {product.description && (
+            <p className="text-[16px] leading-7 text-slate-700 mb-4 whitespace-pre-wrap">{product.description}</p>
+          )}
+
+          <div className="text-[18px] mb-5">
+            Дроп-ціна:&nbsp;
+            <span className="price text-[22px]">{Number(product.price_dropship).toFixed(2)} ₴</span>
           </div>
-        )}
-      </div>
 
-      {/* ІНФО + КНОПКИ */}
-      <div>
-        <h2 style={{ marginTop: 0 }}>{product.name}</h2>
-        {product.description && <p style={{ color: '#555' }}>{product.description}</p>}
-        <div style={{ fontSize: 18, margin: '12px 0' }}>
-          Дроп-ціна: <b>{Number(product.price_dropship).toFixed(2)} ₴</b>
+          <div className="flex gap-3">
+            <button className="btn-outline" onClick={() => add(product)}>Додати в кошик</button>
+            <button
+              className="btn-primary"
+              onClick={() => { add(product); navigate('/cart') }}
+            >Замовити</button>
+          </div>
         </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-  <button onClick={addToCart} style={{ padding: '10px 16px' }}>Додати в кошик</button>
-  <button onClick={() => { addToCart(); nav('/cart') }} style={{ padding: '10px 16px' }}>Замовити</button>
-</div>
       </div>
     </div>
   )
-}
-
-function navBtnStyle(side) {
-  return {
-    position: 'absolute',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    [side]: 8,
-    background: '#fff',
-    border: '1px solid #ddd',
-    borderRadius: 999,
-    width: 36,
-    height: 36,
-    cursor: 'pointer',
-    lineHeight: '32px',
-    fontSize: 20,
-    userSelect: 'none'
-  }
 }
