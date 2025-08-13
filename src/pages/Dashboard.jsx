@@ -26,7 +26,7 @@ export default function Dashboard() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [q, setQ] = useState('') // пошук за ПІБ/телефоном одержувача, як просили
+  const [q, setQ] = useState('') // пошук по ПІБ/телефону одержувача
 
   useEffect(() => {
     let mounted = true
@@ -37,7 +37,6 @@ export default function Dashboard() {
         const uid = sessionData?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
-        // тягнемо всі рядки користувача (кожен рядок = один товар)
         const { data, error } = await supabase
           .from('orders')
           .select(`
@@ -59,7 +58,7 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Групування рядків одного чеку за order_no
+  // Групування по order_no
   const grouped = useMemo(() => {
     const acc = new Map()
     for (const r of rows) {
@@ -67,29 +66,31 @@ export default function Dashboard() {
       if (!acc.has(key)) acc.set(key, [])
       acc.get(key).push(r)
     }
-    // масив замовлень (по order_no), відсортований за датою (перша позиція в групі)
     return Array.from(acc.entries())
-      .map(([order_no, lines]) => ({
-        order_no,
-        created_at: lines[0]?.created_at,
-        recipient_name: lines[0]?.recipient_name,
-        recipient_phone: lines[0]?.recipient_phone,
-        // загальна сума до виплати: Σ((ціна продажу - дроп-ціна) × qty)
-        payout: lines.reduce((s, r) => {
+      .map(([order_no, lines]) => {
+        const first = lines[0]
+        const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
+        const payout = lines.reduce((s, r) => {
           const p = r.product || {}
           const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
           const unitDrop = Number(p.price_dropship ?? 0)
           return s + (unitSale - unitDrop) * Number(r.qty || 1)
-        }, 0),
-        // зведений статус: якщо всі однакові — показуємо, інакше "В обробці"
-        status: (lines.every(l => l.status === lines[0].status) ? lines[0].status : 'processing'),
-        // товари усередині чеку
-        lines
-      }))
+        }, 0)
+        return {
+          order_no,
+          created_at: first?.created_at,
+          recipient_name: first?.recipient_name,
+          recipient_phone: first?.recipient_phone,
+          ttn: first?.ttn || '', // показуємо одну ТТН на замовлення
+          status,
+          payout,
+          lines
+        }
+      })
       .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
   }, [rows])
 
-  // Пошук по ПІБ/телефону одержувача (по чеку)
+  // Пошук за ПІБ/телефоном одержувача
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase()
     if (!t) return grouped
@@ -137,13 +138,18 @@ export default function Dashboard() {
         {filtered.map(order => (
           <div key={order.order_no} className="card">
             <div className="p-4">
-              {/* Шапка замовлення */}
+              {/* Шапка */}
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <div className="flex items-center gap-3">
                   <div className="text-sm text-muted">№</div>
                   <div className="text-[18px] font-semibold">{order.order_no}</div>
                   <div className="text-muted">•</div>
                   <div className="text-sm text-muted">{fmtDate(order.created_at)}</div>
+                  <div className="text-muted">•</div>
+                  <div className="text-sm">
+                    <span className="text-muted">ТТН:&nbsp;</span>
+                    <span className="font-medium">{order.ttn || '—'}</span>
+                  </div>
                 </div>
                 <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
                   {STATUS_UA[order.status] ?? order.status}
@@ -158,7 +164,7 @@ export default function Dashboard() {
                 <span className="font-medium">{order.recipient_phone || '—'}</span>
               </div>
 
-              {/* Товари в замовленні */}
+              {/* Товари */}
               <div className="rounded-xl border border-slate-100">
                 {order.lines.map((r, idx) => {
                   const p = r.product || {}
@@ -177,12 +183,8 @@ export default function Dashboard() {
                           К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
                         </div>
                       </div>
-                      <div className="text-sm w-[220px]">
-                        <div className="text-muted">ТТН</div>
-                        <div className="font-medium">{r.ttn || '—'}</div>
-                      </div>
                       <div className="text-right w-[160px]">
-                        <div className="text-sm text-muted">До виплати (по рядку)</div>
+                        <div className="text-sm text-muted">До виплати</div>
                         <div className="font-semibold">{payout.toFixed(2)} ₴</div>
                       </div>
                     </div>
@@ -190,7 +192,7 @@ export default function Dashboard() {
                 })}
               </div>
 
-              {/* Підсумок по замовленню */}
+              {/* Підсумок */}
               <div className="mt-3 text-right">
                 <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
                 <span className="price text-[18px] font-semibold">{order.payout.toFixed(2)} ₴</span>
