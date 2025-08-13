@@ -1,175 +1,200 @@
-// src/pages/Cart.jsx
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
+import { Link, useNavigate } from 'react-router-dom'
 
 export default function Cart() {
-  const cart = useCart()
-  const items    = Array.isArray(cart?.items) ? cart.items : []
-  const remove   = cart?.remove ?? (()=>{})
-  const setPrice = cart?.setPrice ?? (()=>{})
-  const setQty   = cart?.setQty ?? (()=>{})
-  const inc      = cart?.inc ?? (()=>{})
-  const dec      = cart?.dec ?? (()=>{})
-  const totalFn  = typeof cart?.total === 'function' ? cart.total : () => 0
+  const nav = useNavigate()
+  const { items, removeItem, setQty, setMyPrice, clearCart } = useCart()
 
-  const [form, setForm] = useState({
-    recipient_name: '',
-    recipient_phone: '',
-    settlement: '',
-    nova_poshta_branch: ''
-  })
-  const [sending, setSending] = useState(false)
+  // Дані одержувача
+  const [recipientName, setRecipientName]   = useState('')
+  const [recipientPhone, setRecipientPhone] = useState('')
+  const [settlement, setSettlement]         = useState('')
+  const [branch, setBranch]                 = useState('')
 
-  const total = useMemo(() => {
-    try { return Number(totalFn()) || 0 } catch { return 0 }
-  }, [totalFn, items])
+  // ⬇️ нове: спосіб оплати ('cod' або 'bank')
+  const [payment, setPayment] = useState('cod')
 
-  async function submit() {
-    if (!items.length) return
-    if (!form.recipient_name || !form.recipient_phone || !form.settlement || !form.nova_poshta_branch) {
-      alert('Заповніть усі поля одержувача.'); return
-    }
-    setSending(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const total = useMemo(() => items.reduce((s, it) => {
+    const price = Number(it.myPrice ?? it.product?.price_dropship ?? 0)
+    return s + price * Number(it.qty || 1)
+  }, 0), [items])
+
+  const canSubmit = useMemo(() => {
+    return items.length > 0 &&
+      recipientName.trim().length >= 2 &&
+      recipientPhone.trim().length >= 7 &&
+      settlement.trim().length >= 2 &&
+      branch.trim().length >= 1 &&
+      (payment === 'cod' || payment === 'bank')
+  }, [items, recipientName, recipientPhone, settlement, branch, payment])
+
+  async function placeOrder() {
+    if (!canSubmit) return
+    setSubmitting(true); setError('')
     try {
-      const { data: userData } = await supabase.auth.getUser()
-      const user_id = userData?.user?.id || null
+      const { data: sdata } = await supabase.auth.getSession()
+      const uid = sdata?.session?.user?.id
+      if (!uid) throw new Error('Потрібно увійти в аккаунт')
 
-      // ✅ один номер для всіх рядків цього чеку
       const { data: ono, error: onoErr } = await supabase.rpc('next_order_no')
       if (onoErr) throw onoErr
-      const order_no = ono
 
       const rows = items.map(it => ({
-        order_no,
-        user_id,
-        product_id: it.id,
-        qty: it.qty || 1,
-        my_price: Number(it.my_price ?? it.price_dropship ?? 0),
-        recipient_name: form.recipient_name,
-        recipient_phone: form.recipient_phone,
-        settlement: form.settlement,
-        nova_poshta_branch: form.nova_poshta_branch,
-        shipping_address: null
+        user_id: uid,
+        product_id: it.product.id,
+        qty: Number(it.qty || 1),
+        my_price: Number(it.myPrice ?? it.product.price_dropship ?? 0),
+        recipient_name: recipientName.trim(),
+        recipient_phone: recipientPhone.trim(),
+        settlement: settlement.trim(),
+        nova_poshta_branch: branch.trim(),
+        status: 'pending',
+        order_no: ono,
+        payment_method: payment,   // ⬅️ пишемо обраний спосіб
       }))
 
-      const { error } = await supabase.from('orders').insert(rows)
-      if (error) throw error
+      const { error: insErr } = await supabase.from('orders').insert(rows)
+      if (insErr) throw insErr
 
-      alert(`Замовлення №${order_no} створено! Статус дивіться у «Мої замовлення».`)
-      window.location.href = '/dashboard'
+      clearCart()
+      nav('/dashboard')
     } catch (e) {
-      console.error(e)
-      alert(e.message || 'Не вдалося створити замовлення')
+      setError(e.message || 'Помилка оформлення')
     } finally {
-      setSending(false)
+      setSubmitting(false)
     }
   }
 
   return (
     <div className="container-page my-6">
-      <h2 className="h1 mb-4">Кошик</h2>
+      <div className="flex items-center justify-between mb-4 gap-3">
+        <h1 className="h1">Кошик</h1>
+        <Link className="btn-outline" to="/">До каталогу</Link>
+      </div>
 
+      {/* Товари */}
+      <div className="card mb-4">
+        <div className="card-body">
+          {items.length === 0 ? (
+            <div className="text-muted">Кошик порожній.</div>
+          ) : (
+            <div className="space-y-3">
+              {items.map(it => (
+                <div key={it.product.id} className="rounded-xl border border-slate-100 p-3 flex items-center gap-3">
+                  <div className="w-20 h-20 rounded-lg overflow-hidden bg-slate-100">
+                    {it.product.image_url && <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{it.product.name}</div>
+                    <div className="text-muted text-sm">Дроп-ціна: {(Number(it.product.price_dropship)||0).toFixed(2)} ₴</div>
+                  </div>
+
+                  <div className="flex items-center gap-2 w-[140px]">
+                    <span className="text-sm text-muted">Кількість</span>
+                    <input
+                      type="number" min={1}
+                      className="input input-xs w-[64px] text-center"
+                      value={it.qty}
+                      onChange={e=>setQty(it.product.id, Math.max(1, Number(e.target.value||1)))}
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 w-[210px]">
+                    <span className="text-sm text-muted">Ціна продажу</span>
+                    <input
+                      type="number" min={0}
+                      className="input input-xs w-[100px] text-right"
+                      value={it.myPrice ?? it.product.price_dropship}
+                      onChange={e=>setMyPrice(it.product.id, Number(e.target.value||0))}
+                    />
+                  </div>
+
+                  <button className="btn-ghost" onClick={()=>removeItem(it.product.id)} title="Прибрати">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Разом */}
+      <div className="card mb-4">
+        <div className="card-body flex items-center justify-between">
+          <div className="text-muted">Всього:</div>
+          <div className="price text-[22px] font-semibold">{total.toFixed(2)} ₴</div>
+        </div>
+      </div>
+
+      {/* Дані + Спосіб оплати */}
       <div className="card">
-        {items.length === 0 && <div className="p-5 text-muted">Кошик порожній.</div>}
+        <div className="card-body">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <div className="h2 mb-3">Дані одержувача</div>
 
-        {items.map((it) => {
-          const unit = Number(it?.my_price ?? it?.price_dropship ?? 0)
-          const line = unit * (it?.qty || 1)
-          return (
-            <div key={it.id} className="flex items-center gap-4 p-4 border-b last:border-b-0 border-slate-100">
-              <div className="w-[110px] h-[80px] overflow-hidden rounded-xl bg-slate-100">
-                {it?.image_url && <img src={it.image_url} alt={it?.name || ''} className="w-full h-full object-cover" />}
-              </div>
+              <label className="label">ПІБ одержувача</label>
+              <input className="input" value={recipientName} onChange={e=>setRecipientName(e.target.value)} />
 
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold truncate">{it?.name || 'Товар'}</div>
-                <div className="text-muted text-sm">Дроп-ціна: {Number(it?.price_dropship ?? 0).toFixed(2)} ₴</div>
-              </div>
+              <label className="label mt-3">Телефон одержувача (+380...)</label>
+              <input className="input" value={recipientPhone} onChange={e=>setRecipientPhone(e.target.value)} placeholder="+380..." />
 
-              <div className="flex items-center gap-2">
-                <div className="text-sm text-muted">Ціна продажу</div>
-                <input
-                  className="input input-xs w-[110px] text-right"
-                  value={String(unit)}
-                  onChange={e => setPrice(it.id, e.target.value)}
-                  inputMode="numeric"
-                />
-                <div className="text-sm text-muted">грн/шт</div>
-              </div>
+              <label className="label mt-3">Населений пункт</label>
+              <input className="input" value={settlement} onChange={e=>setSettlement(e.target.value)} />
 
-              <div className="flex items-center gap-1">
-                <button className="btn-ghost input-xs" onClick={()=>dec(it.id)} aria-label="Зменшити">−</button>
-                <input
-                  className="input input-xs w-[64px] text-center"
-                  value={String(it?.qty || 1)}
-                  onChange={e => setQty(it.id, e.target.value)}
-                  inputMode="numeric"
-                />
-                <button className="btn-ghost input-xs" onClick={()=>inc(it.id)} aria-label="Збільшити">+</button>
-              </div>
-
-              <div className="w-[120px] text-right font-semibold">{line.toFixed(2)} ₴</div>
-
-              <button
-                aria-label="Прибрати"
-                onClick={() => remove(it.id)}
-                className="w-9 h-9 rounded-full bg-white border border-slate-300 hover:bg-slate-50 flex items-center justify-center"
-                title="Прибрати"
-              >
-                ×
-              </button>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="mt-4 text-[18px]">
-        Всього:&nbsp;<span className="price text-[22px]">{total.toFixed(2)} ₴</span>
-      </div>
-
-      {items.length > 0 && (
-        <div className="card mt-6">
-          <div className="card-body">
-            <div className="h2 mb-4">Дані одержувача</div>
-
-            <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="ПІБ отримувача">
-                <input className="input" value={form.recipient_name}
-                  onChange={e=>setForm({...form, recipient_name:e.target.value})} placeholder="Ім'я Прізвище"/>
-              </Field>
-              <Field label="Телефон отримувача (+380…)">
-                <input className="input" value={form.recipient_phone}
-                  onChange={e=>setForm({...form, recipient_phone:e.target.value})} placeholder="+380…"/>
-              </Field>
-              <Field label="Населений пункт">
-                <input className="input" value={form.settlement}
-                  onChange={e=>setForm({...form, settlement:e.target.value})} placeholder="Київ"/>
-              </Field>
-              <Field label="Відділення Нової пошти">
-                <input className="input" value={form.nova_poshta_branch}
-                  onChange={e=>setForm({...form, nova_poshta_branch:e.target.value})} placeholder="Відділення №…"/>
-              </Field>
+              <label className="label mt-3">Відділення Нової пошти</label>
+              <input className="input" value={branch} onChange={e=>setBranch(e.target.value)} placeholder="Напр.: 25" />
             </div>
 
-            <div className="mt-5 flex gap-3">
-              <button className="btn-outline" onClick={()=>window.location.href='/'}>Продовжити покупки</button>
-              <button className="btn-primary" disabled={sending} onClick={submit}>
-                {sending ? 'Надсилаємо…' : 'Підтвердити замовлення'}
-              </button>
+            <div>
+              <div className="h2 mb-3">Спосіб оплати</div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="radio" className="accent-indigo-600"
+                    name="payment" value="cod"
+                    checked={payment === 'cod'}
+                    onChange={()=>setPayment('cod')}
+                  />
+                  <div>
+                    <div className="font-medium">Післяплата</div>
+                    <div className="text-sm text-muted">Оплата при отриманні</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="radio" className="accent-indigo-600"
+                    name="payment" value="bank"
+                    checked={payment === 'bank'}
+                    onChange={()=>setPayment('bank')}
+                  />
+                  <div>
+                    <div className="font-medium">Оплата по реквізитам</div>
+                    <div className="text-sm text-muted">Переказ на картку/рахунок до відправлення</div>
+                  </div>
+                </label>
+              </div>
+
+              <div className="mt-6">
+                <button
+                  className="btn-primary w-full md:w-auto"
+                  onClick={placeOrder}
+                  disabled={!canSubmit || submitting}
+                >
+                  {submitting ? 'Відправляємо…' : 'Підтвердити замовлення'}
+                </button>
+                {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+              </div>
             </div>
           </div>
         </div>
-      )}
-    </div>
-  )
-}
-
-function Field({ label, children }) {
-  return (
-    <div>
-      <div className="text-sm text-muted mb-1">{label}</div>
-      {children}
+      </div>
     </div>
   )
 }
