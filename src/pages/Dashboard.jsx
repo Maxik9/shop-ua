@@ -12,21 +12,6 @@ const STATUS_UA = {
   canceled: 'Скасовано',
 }
 
-// бейдж статусу
-function StatusBadge({ status }) {
-  const s = status || 'pending'
-  const map = {
-    pending:   'bg-slate-100 text-slate-700',
-    processing:'bg-amber-100 text-amber-700',
-    ordered:   'bg-blue-100 text-blue-700',
-    shipped:   'bg-indigo-100 text-indigo-700',
-    delivered: 'bg-emerald-100 text-emerald-700',
-    canceled:  'bg-rose-100 text-rose-700',
-  }
-  const cls = map[s] || map.pending
-  return <span className={`px-2 py-1 rounded-lg text-sm ${cls}`}>{STATUS_UA[s] ?? s}</span>
-}
-
 function fmtDate(ts) {
   try {
     const d = new Date(ts)
@@ -38,10 +23,9 @@ function fmtDate(ts) {
 }
 
 export default function Dashboard() {
-  const [orders, setOrders] = useState([])
+  const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [q, setQ] = useState('') // ⟵ ПОШУК
 
   useEffect(() => {
     let mounted = true
@@ -52,18 +36,19 @@ export default function Dashboard() {
         const uid = sessionData?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
+        // Тягнемо замовлення поточного користувача + прив’язаний товар
         const { data, error } = await supabase
           .from('orders')
           .select(`
-            id, status, qty, my_price, created_at,
+            id, created_at, status, qty, my_price, ttn,
             recipient_name, recipient_phone,
-            product:products(id, name, image_url, price_dropship)
+            product:products ( id, name, image_url, price_dropship )
           `)
           .eq('user_id', uid)
           .order('created_at', { ascending: false })
 
         if (error) throw error
-        if (mounted) setOrders(data || [])
+        if (mounted) setRows(data || [])
       } catch (e) {
         if (mounted) setError(e.message || 'Помилка завантаження')
       } finally {
@@ -73,50 +58,22 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Фільтр за запитом q
-  const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase()
-    if (!t) return orders
-    return (orders || []).filter(o => {
-      const p = o.product || {}
-      const unit = Number(o.my_price ?? p.price_dropship ?? 0)
-      const qty  = Number(o.qty || 1)
-      const sum  = unit * qty
-      const candidate = [
-        p.name,
-        o.recipient_name,
-        o.recipient_phone,
-        STATUS_UA[o.status] || o.status, // укр/англ
-        fmtDate(o.created_at),
-        String(unit),
-        String(qty),
-        String(sum)
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return candidate.includes(t)
-    })
-  }, [orders, q])
-
-  const totalAll = useMemo(
-    () => (filtered || []).reduce((s, o) => s + Number(o.my_price || 0) * Number(o.qty || 1), 0),
-    [filtered]
-  )
+  const totalPayout = useMemo(() => {
+    return (rows || []).reduce((sum, r) => {
+      const p = r.product || {}
+      const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)  // ціна продажу за 1
+      const unitDrop = Number(p.price_dropship ?? 0)                // дроп-ціна сайту за 1
+      const qty = Number(r.qty || 1)
+      const diff = (unitSale - unitDrop) * qty
+      return sum + diff
+    }, 0)
+  }, [rows])
 
   return (
     <div className="container-page my-6">
       <div className="flex items-center justify-between mb-4 gap-3">
         <h1 className="h1">Мої замовлення</h1>
-        <div className="flex items-center gap-2">
-          <input
-            className="input input-xs w-[260px]"
-            placeholder="Пошук: товар / статус / одержувач / телефон…"
-            value={q}
-            onChange={e=>setQ(e.target.value)}
-          />
-          <Link to="/" className="btn-outline">До каталогу</Link>
-        </div>
+        <Link to="/" className="btn-outline">До каталогу</Link>
       </div>
 
       {loading && <div className="card"><div className="card-body">Завантаження…</div></div>}
@@ -129,61 +86,87 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!loading && !error && filtered.length === 0 && (
+      {!loading && !error && rows.length === 0 && (
         <div className="card">
-          <div className="card-body text-muted">
-            Нічого не знайдено за запитом «{q}».
+          <div className="card-body text-muted">Замовлень поки немає.</div>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="card">
+          <div className="card-body overflow-x-auto">
+            <table className="min-w-full text-[14px]">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="py-2 pr-3">Дата</th>
+                  <th className="py-2 pr-3">Клієнт</th>
+                  <th className="py-2 pr-3">Товар</th>
+                  <th className="py-2 pr-3">ТТН</th>
+                  <th className="py-2 pr-3">Статус</th>
+                  <th className="py-2 pr-3 text-right">Сума до виплати</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => {
+                  const p = r.product || {}
+                  const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
+                  const unitDrop = Number(p.price_dropship ?? 0)
+                  const qty = Number(r.qty || 1)
+                  const payout = (unitSale - unitDrop) * qty  // ВИНАГОРОДА
+                  return (
+                    <tr key={r.id} className="border-t border-slate-100 align-top">
+                      <td className="py-3 pr-3 whitespace-nowrap">{fmtDate(r.created_at)}</td>
+
+                      <td className="py-3 pr-3">
+                        <div className="font-medium">{r.recipient_name || '—'}</div>
+                        <div className="text-muted">{r.recipient_phone || '—'}</div>
+                      </td>
+
+                      <td className="py-3 pr-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-lg overflow-hidden bg-slate-100">
+                            {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
+                          </div>
+                          <div>
+                            <div className="font-medium">{p.name || '—'}</div>
+                            <div className="text-muted text-sm">
+                              К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3 pr-3">
+                        {r.ttn ? (
+                          <div className="font-medium">{r.ttn}</div>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+
+                      <td className="py-3 pr-3">
+                        <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
+                          {STATUS_UA[r.status] ?? r.status}
+                        </span>
+                      </td>
+
+                      <td className="py-3 pr-0 text-right font-semibold">
+                        {payout.toFixed(2)} ₴
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      <div className="space-y-3">
-        {filtered.map(o => {
-          const p = o.product || {}
-          const unit = Number(o.my_price ?? p.price_dropship ?? 0)
-          const qty  = Number(o.qty || 1)
-          const line = unit * qty
-          return (
-            <div key={o.id} className="card">
-              <div className="p-4 flex items-center gap-4">
-                <div className="w-[96px] h-[72px] rounded-xl overflow-hidden bg-slate-100">
-                  {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-semibold truncate">{p.name || 'Товар'}</div>
-                    <StatusBadge status={o.status} />
-                  </div>
-                  <div className="text-muted text-sm mt-1">
-                    Створено: {fmtDate(o.created_at)}
-                  </div>
-                </div>
-
-                <div className="hidden sm:block text-right text-sm text-muted">
-                  <div>Кількість</div>
-                  <div className="font-medium text-slate-900">{qty}</div>
-                </div>
-
-                <div className="hidden sm:block text-right text-sm text-muted">
-                  <div>Ціна / шт</div>
-                  <div className="font-medium text-slate-900">{unit.toFixed(2)} ₴</div>
-                </div>
-
-                <div className="text-right">
-                  <div className="text-sm text-muted">Сума</div>
-                  <div className="font-semibold">{line.toFixed(2)} ₴</div>
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {filtered.length > 0 && (
+      {rows.length > 0 && (
         <div className="mt-4 text-right">
           <div className="text-[18px]">
-            Разом:&nbsp;<span className="price text-[22px]">{totalAll.toFixed(2)} ₴</span>
+            Разом до виплати:&nbsp;
+            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
           </div>
         </div>
       )}
