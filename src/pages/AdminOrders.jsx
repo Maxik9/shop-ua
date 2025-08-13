@@ -11,6 +11,11 @@ const STATUS = [
   { v: 'canceled',    t: 'Скасовано' },
 ]
 
+const PAY_UA = {
+  cod: 'Післяплата',
+  bank: 'Оплата по реквізитам',
+}
+
 function fmtDate(ts) {
   try {
     const d = new Date(ts)
@@ -34,7 +39,7 @@ export default function AdminOrders() {
     const { data, error } = await supabase
       .from('orders')
       .select(`
-        id, order_no, created_at, status, qty, my_price, ttn,
+        id, order_no, created_at, status, qty, my_price, ttn, payment_method,
         recipient_name, recipient_phone, settlement, nova_poshta_branch,
         product:products ( id, name, image_url, price_dropship ),
         user:profiles ( user_id, full_name, phone, email )
@@ -44,7 +49,7 @@ export default function AdminOrders() {
     setLoading(false)
   }
 
-  // Групування по order_no (одна картка на замовлення)
+  // Групування по order_no
   const orders = useMemo(() => {
     const acc = new Map()
     for (const r of rows) {
@@ -55,24 +60,31 @@ export default function AdminOrders() {
     const list = Array.from(acc.entries()).map(([order_no, lines]) => {
       const first = lines[0]
       const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
+      const payment = first?.payment_method || 'cod'
+
       const sum = lines.reduce((s, r) => {
         const p = r.product || {}
         const unit = Number(r.my_price ?? p.price_dropship ?? 0)
         return s + unit * Number(r.qty || 1)
       }, 0)
-      const payout = lines.reduce((s, r) => {
-        const p = r.product || {}
-        const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-        const unitDrop = Number(p.price_dropship ?? 0)
-        return s + (unitSale - unitDrop) * Number(r.qty || 1)
-      }, 0)
+
+      const payout = payment === 'bank'
+        ? 0
+        : lines.reduce((s, r) => {
+            const p = r.product || {}
+            const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
+            const unitDrop = Number(p.price_dropship ?? 0)
+            return s + (unitSale - unitDrop) * Number(r.qty || 1)
+          }, 0)
+
       return {
         order_no,
         lines,
         created_at: first?.created_at,
         status,
+        payment, // збережемо спосіб оплати
         ttn: first?.ttn || '',
-        user: first?.user || null, // профіль дропшипера
+        user: first?.user || null,
         recipient_name: first?.recipient_name,
         recipient_phone: first?.recipient_phone,
         settlement: first?.settlement,
@@ -81,15 +93,13 @@ export default function AdminOrders() {
         payout
       }
     })
-    // за замовчуванням — новіші зверху
     return list.sort((a,b)=> new Date(b.created_at) - new Date(a.created_at))
   }, [rows])
 
-  // Фільтр/пошук/сортування
+  // Пошук/фільтр/сортування
   const list = useMemo(() => {
     let arr = orders
     if (statusFilter !== 'all') arr = arr.filter(o => o.status === statusFilter)
-
     const t = q.trim().toLowerCase()
     if (t) {
       arr = arr.filter(o => {
@@ -99,12 +109,11 @@ export default function AdminOrders() {
           o.user?.full_name, o.user?.phone, o.user?.email,
           o.recipient_name, o.recipient_phone,
           products, o.ttn, o.settlement, o.branch,
-          o.status, fmtDate(o.created_at)
+          o.status, PAY_UA[o.payment], fmtDate(o.created_at)
         ].filter(Boolean).join(' ').toLowerCase()
         return candidate.includes(t)
       })
     }
-
     if (sortEmail !== 'none') {
       arr = [...arr].sort((a,b) => {
         const A = (a.user?.email || '').toLowerCase()
@@ -175,11 +184,11 @@ export default function AdminOrders() {
             <div className="ml-auto text-muted text-sm">{list.length} замовлень</div>
           </div>
 
-          {/* Замовлення */}
+          {/* Список замовлень */}
           <div className="space-y-4">
             {list.map(o => (
               <div key={o.order_no} className="rounded-2xl border border-slate-200 overflow-hidden bg-white">
-                {/* Шапка */}
+                {/* Шапка замовлення */}
                 <div className="p-4 flex flex-wrap items-center justify-between gap-3 bg-slate-50">
                   <div className="flex items-center flex-wrap gap-x-4 gap-y-2">
                     <div className="flex items-center gap-2">
@@ -210,6 +219,9 @@ export default function AdminOrders() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 rounded-lg text-sm bg-indigo-50 text-indigo-700">
+                      Оплата: {PAY_UA[o.payment] || o.payment}
+                    </span>
                     <select
                       className="input input-xs"
                       value={o.status}
@@ -232,7 +244,9 @@ export default function AdminOrders() {
                     const p = r.product || {}
                     const unit = Number(r.my_price ?? p.price_dropship ?? 0)
                     const qty  = Number(r.qty || 1)
-                    const payout = (Number(r.my_price ?? p.price_dropship ?? 0) - Number(p.price_dropship ?? 0)) * qty
+                    const perLinePayout = o.payment === 'bank'
+                      ? 0
+                      : (Number(r.my_price ?? p.price_dropship ?? 0) - Number(p.price_dropship ?? 0)) * qty
                     return (
                       <div key={r.id} className={`p-4 flex items-center gap-4 ${idx>0 ? 'border-t border-slate-100':''}`}>
                         <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100">
@@ -248,7 +262,7 @@ export default function AdminOrders() {
                         </div>
                         <div className="text-right w-[180px]">
                           <div className="text-sm text-muted">До виплати</div>
-                          <div className="font-semibold">{payout.toFixed(2)} ₴</div>
+                          <div className="font-semibold">{perLinePayout.toFixed(2)} ₴</div>
                         </div>
                       </div>
                     )

@@ -12,6 +12,11 @@ const STATUS_UA = {
   canceled: 'Скасовано',
 }
 
+const PAY_UA = {
+  cod: 'Післяплата',
+  bank: 'Оплата по реквізитам',
+}
+
 function fmtDate(ts) {
   try {
     const d = new Date(ts)
@@ -26,7 +31,7 @@ export default function Dashboard() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [q, setQ] = useState('') // пошук по ПІБ/телефону одержувача
+  const [q, setQ] = useState('')
 
   useEffect(() => {
     let mounted = true
@@ -40,7 +45,7 @@ export default function Dashboard() {
         const { data, error } = await supabase
           .from('orders')
           .select(`
-            id, order_no, created_at, status, qty, my_price, ttn,
+            id, order_no, created_at, status, qty, my_price, ttn, payment_method,
             recipient_name, recipient_phone,
             product:products ( id, name, image_url, price_dropship )
           `)
@@ -58,7 +63,7 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Групування по order_no
+  // Групування по order_no (одна картка на замовлення)
   const grouped = useMemo(() => {
     const acc = new Map()
     for (const r of rows) {
@@ -70,19 +75,24 @@ export default function Dashboard() {
       .map(([order_no, lines]) => {
         const first = lines[0]
         const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
-        const payout = lines.reduce((s, r) => {
-          const p = r.product || {}
-          const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-          const unitDrop = Number(p.price_dropship ?? 0)
-          return s + (unitSale - unitDrop) * Number(r.qty || 1)
-        }, 0)
+        const payment = first?.payment_method || 'cod'
+        // якщо оплата по реквізитам — до виплати 0
+        const payout = payment === 'bank'
+          ? 0
+          : lines.reduce((s, r) => {
+              const p = r.product || {}
+              const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
+              const unitDrop = Number(p.price_dropship ?? 0)
+              return s + (unitSale - unitDrop) * Number(r.qty || 1)
+            }, 0)
         return {
           order_no,
           created_at: first?.created_at,
           recipient_name: first?.recipient_name,
           recipient_phone: first?.recipient_phone,
-          ttn: first?.ttn || '', // показуємо одну ТТН на замовлення
+          ttn: first?.ttn || '',
           status,
+          payment,  // ⟵ збережемо спосіб оплати
           payout,
           lines
         }
@@ -140,7 +150,7 @@ export default function Dashboard() {
             <div className="p-4">
               {/* Шапка */}
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <div className="text-sm text-muted">№</div>
                   <div className="text-[18px] font-semibold">{order.order_no}</div>
                   <div className="text-muted">•</div>
@@ -151,14 +161,19 @@ export default function Dashboard() {
                     <span className="font-medium">{order.ttn || '—'}</span>
                   </div>
                 </div>
-                <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
-                  {STATUS_UA[order.status] ?? order.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
+                    {STATUS_UA[order.status] ?? order.status}
+                  </span>
+                  <span className="px-2 py-1 rounded-lg text-sm bg-indigo-50 text-indigo-700">
+                    Оплата: {PAY_UA[order.payment] || order.payment}
+                  </span>
+                </div>
               </div>
 
               {/* Клієнт */}
               <div className="mb-3 text-sm">
-                <span className="text-muted">Клієнт:&nbsp;</span>
+                <span className="text-muted">Клієнт (одержувач):&nbsp;</span>
                 <span className="font-medium">{order.recipient_name || '—'}</span>
                 <span className="text-muted">&nbsp;•&nbsp;</span>
                 <span className="font-medium">{order.recipient_phone || '—'}</span>
@@ -171,7 +186,7 @@ export default function Dashboard() {
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
                   const qty = Number(r.qty || 1)
-                  const payout = (unitSale - unitDrop) * qty
+                  const perLinePayout = order.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
                   return (
                     <div key={r.id} className={`p-3 flex items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100">
@@ -185,7 +200,7 @@ export default function Dashboard() {
                       </div>
                       <div className="text-right w-[160px]">
                         <div className="text-sm text-muted">До виплати</div>
-                        <div className="font-semibold">{payout.toFixed(2)} ₴</div>
+                        <div className="font-semibold">{perLinePayout.toFixed(2)} ₴</div>
                       </div>
                     </div>
                   )
