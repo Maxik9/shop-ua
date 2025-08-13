@@ -4,45 +4,55 @@ import { useCart } from '../context/CartContext'
 export default function ProductCard({ product }) {
   const { addItem } = useCart()
 
-  const onAdd = (e) => {
-    e.preventDefault()
-    e.stopPropagation()
+  function add() {
     addItem(product, 1, product.price_dropship)
   }
 
   return (
-    <div className="card overflow-hidden">
-      <Link to={`/product/${product.id}`} className="block">
-        <div className="w-full aspect-square bg-slate-100">
-          {product.image_url && (
-            <img
-              src={product.image_url}
-              alt={product.name}
-              className="w-full h-full object-cover"
-            />
-          )}
-        </div>
-      </Link>
+    <div className="card h-full flex flex-col">
+      {/* фото 1:1 */}
+      <div className="w-full aspect-square rounded-2xl overflow-hidden bg-slate-100">
+        {product?.image_url ? (
+          <img
+            src={product.image_url}
+            alt={product.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full grid place-items-center text-muted">
+            Немає фото
+          </div>
+        )}
+      </div>
 
-      <div className="card-body">
-        <Link to={`/product/${product.id}`} className="block">
-          <h3 className="font-semibold text-[16px] leading-5 line-clamp-2 min-h-[40px]">
-            {product.name}
-          </h3>
+      {/* контент */}
+      <div className="card-body flex-1 flex flex-col">
+        {/* назва: до 2х рядків, однакова висота */}
+        <Link
+          to={`/product/${product.id}`}
+          className="block font-semibold text-[18px] leading-snug line-clamp-2 min-h-[48px]"
+          title={product.name}
+        >
+          {product.name}
         </Link>
 
-        <div className="mt-3 flex items-center justify-between">
-          <span className="text-muted text-[14px]">
-            Дроп-ціна:{' '}
-            <b className="price text-[16px] text-slate-900">
-              {Number(product.price_dropship).toFixed(2)} ₴
-            </b>
-          </span>
-
-          <button onClick={onAdd} className="btn-primary">
-            До кошика
-          </button>
+        {/* ціна: вирівняно по базовій лінії, валюта не “стрибає” */}
+        <div className="mt-2 flex items-baseline justify-between">
+          <div className="text-muted">Дроп-ціна:</div>
+          <div className="font-semibold text-[18px] whitespace-nowrap">
+            {(Number(product.price_dropship) || 0).toFixed(2)}{' '}
+            <span className="text-slate-500">₴</span>
+          </div>
         </div>
+
+        {/* кнопка: завжди рівно, на мобайлі повна ширина */}
+        <button
+          onClick={add}
+          className="btn-primary mt-3 w-full sm:w-auto self-start"
+        >
+          До кошика
+        </button>
       </div>
     </div>
   )
