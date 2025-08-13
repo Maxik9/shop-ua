@@ -26,7 +26,7 @@ export default function Dashboard() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [q, setQ] = useState('') // ⟵ Пошук за ПІБ/телефоном одержувача
+  const [q, setQ] = useState('') // пошук за ПІБ/телефоном одержувача, як просили
 
   useEffect(() => {
     let mounted = true
@@ -37,10 +37,11 @@ export default function Dashboard() {
         const uid = sessionData?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
+        // тягнемо всі рядки користувача (кожен рядок = один товар)
         const { data, error } = await supabase
           .from('orders')
           .select(`
-            id, created_at, status, qty, my_price, ttn,
+            id, order_no, created_at, status, qty, my_price, ttn,
             recipient_name, recipient_phone,
             product:products ( id, name, image_url, price_dropship )
           `)
@@ -58,26 +59,50 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Локальний фільтр по ПІБ або телефону одержувача
+  // Групування рядків одного чеку за order_no
+  const grouped = useMemo(() => {
+    const acc = new Map()
+    for (const r of rows) {
+      const key = r.order_no || r.id
+      if (!acc.has(key)) acc.set(key, [])
+      acc.get(key).push(r)
+    }
+    // масив замовлень (по order_no), відсортований за датою (перша позиція в групі)
+    return Array.from(acc.entries())
+      .map(([order_no, lines]) => ({
+        order_no,
+        created_at: lines[0]?.created_at,
+        recipient_name: lines[0]?.recipient_name,
+        recipient_phone: lines[0]?.recipient_phone,
+        // загальна сума до виплати: Σ((ціна продажу - дроп-ціна) × qty)
+        payout: lines.reduce((s, r) => {
+          const p = r.product || {}
+          const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
+          const unitDrop = Number(p.price_dropship ?? 0)
+          return s + (unitSale - unitDrop) * Number(r.qty || 1)
+        }, 0),
+        // зведений статус: якщо всі однакові — показуємо, інакше "В обробці"
+        status: (lines.every(l => l.status === lines[0].status) ? lines[0].status : 'processing'),
+        // товари усередині чеку
+        lines
+      }))
+      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+  }, [rows])
+
+  // Пошук по ПІБ/телефону одержувача (по чеку)
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase()
-    if (!t) return rows
-    return (rows || []).filter(r => {
-      const name = (r.recipient_name || '').toLowerCase()
-      const phone = (r.recipient_phone || '').toLowerCase()
-      return name.includes(t) || phone.includes(t)
-    })
-  }, [rows, q])
+    if (!t) return grouped
+    return grouped.filter(g =>
+      (g.recipient_name || '').toLowerCase().includes(t) ||
+      (g.recipient_phone || '').toLowerCase().includes(t)
+    )
+  }, [grouped, q])
 
-  const totalPayout = useMemo(() => {
-    return (filtered || []).reduce((sum, r) => {
-      const p = r.product || {}
-      const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)  // ціна продажу за 1
-      const unitDrop = Number(p.price_dropship ?? 0)                // дроп-ціна за 1
-      const qty = Number(r.qty || 1)
-      return sum + (unitSale - unitDrop) * qty
-    }, 0)
-  }, [filtered])
+  const totalPayout = useMemo(
+    () => filtered.reduce((s, g) => s + g.payout, 0),
+    [filtered]
+  )
 
   return (
     <div className="container-page my-6">
@@ -105,79 +130,80 @@ export default function Dashboard() {
       )}
 
       {!loading && !error && filtered.length === 0 && (
-        <div className="card">
-          <div className="card-body text-muted">
-            Нічого не знайдено за запитом «{q}».
-          </div>
-        </div>
+        <div className="card"><div className="card-body text-muted">Нічого не знайдено.</div></div>
       )}
 
-      {filtered.length > 0 && (
-        <div className="card">
-          <div className="card-body overflow-x-auto">
-            <table className="min-w-full text-[14px]">
-              <thead className="text-left text-slate-500">
-                <tr>
-                  <th className="py-2 pr-3">Дата</th>
-                  <th className="py-2 pr-3">Клієнт (одержувач)</th>
-                  <th className="py-2 pr-3">Товар</th>
-                  <th className="py-2 pr-3">ТТН</th>
-                  <th className="py-2 pr-3">Статус</th>
-                  <th className="py-2 pr-3 text-right">Сума до виплати</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(r => {
+      <div className="space-y-3">
+        {filtered.map(order => (
+          <div key={order.order_no} className="card">
+            <div className="p-4">
+              {/* Шапка замовлення */}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="text-sm text-muted">№</div>
+                  <div className="text-[18px] font-semibold">{order.order_no}</div>
+                  <div className="text-muted">•</div>
+                  <div className="text-sm text-muted">{fmtDate(order.created_at)}</div>
+                </div>
+                <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
+                  {STATUS_UA[order.status] ?? order.status}
+                </span>
+              </div>
+
+              {/* Клієнт */}
+              <div className="mb-3 text-sm">
+                <span className="text-muted">Клієнт:&nbsp;</span>
+                <span className="font-medium">{order.recipient_name || '—'}</span>
+                <span className="text-muted">&nbsp;•&nbsp;</span>
+                <span className="font-medium">{order.recipient_phone || '—'}</span>
+              </div>
+
+              {/* Товари в замовленні */}
+              <div className="rounded-xl border border-slate-100">
+                {order.lines.map((r, idx) => {
                   const p = r.product || {}
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
                   const qty = Number(r.qty || 1)
                   const payout = (unitSale - unitDrop) * qty
                   return (
-                    <tr key={r.id} className="border-t border-slate-100 align-top">
-                      <td className="py-3 pr-3 whitespace-nowrap">{fmtDate(r.created_at)}</td>
-
-                      <td className="py-3 pr-3">
-                        <div className="font-medium">{r.recipient_name || '—'}</div>
-                        <div className="text-muted">{r.recipient_phone || '—'}</div>
-                      </td>
-
-                      <td className="py-3 pr-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-14 h-14 rounded-lg overflow-hidden bg-slate-100">
-                            {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
-                          </div>
-                          <div className="min-w-[180px]">
-                            <div className="font-medium">{p.name || '—'}</div>
-                            <div className="text-muted text-sm">
-                              К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
-                            </div>
-                          </div>
+                    <div key={r.id} className={`p-3 flex items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100">
+                        {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{p.name || '—'}</div>
+                        <div className="text-muted text-sm">
+                          К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
                         </div>
-                      </td>
-
-                      <td className="py-3 pr-3">{r.ttn ? <span className="font-medium">{r.ttn}</span> : <span className="text-muted">—</span>}</td>
-
-                      <td className="py-3 pr-3">
-                        <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
-                          {STATUS_UA[r.status] ?? r.status}
-                        </span>
-                      </td>
-
-                      <td className="py-3 pr-0 text-right font-semibold">{payout.toFixed(2)} ₴</td>
-                    </tr>
+                      </div>
+                      <div className="text-sm w-[220px]">
+                        <div className="text-muted">ТТН</div>
+                        <div className="font-medium">{r.ttn || '—'}</div>
+                      </div>
+                      <div className="text-right w-[160px]">
+                        <div className="text-sm text-muted">До виплати (по рядку)</div>
+                        <div className="font-semibold">{payout.toFixed(2)} ₴</div>
+                      </div>
+                    </div>
                   )
                 })}
-              </tbody>
-            </table>
+              </div>
+
+              {/* Підсумок по замовленню */}
+              <div className="mt-3 text-right">
+                <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
+                <span className="price text-[18px] font-semibold">{order.payout.toFixed(2)} ₴</span>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
 
       {filtered.length > 0 && (
         <div className="mt-4 text-right">
           <div className="text-[18px]">
-            Разом до виплати:&nbsp;
+            Всього до виплати по вибірці:&nbsp;
             <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
           </div>
         </div>

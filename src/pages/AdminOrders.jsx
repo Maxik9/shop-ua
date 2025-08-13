@@ -23,7 +23,7 @@ export default function AdminOrders() {
     const { data, error } = await supabase
       .from('orders')
       .select(`
-        id, created_at, status, qty, my_price, ttn,
+        id, order_no, created_at, status, qty, my_price, ttn,
         recipient_name, recipient_phone, settlement, nova_poshta_branch,
         product:products ( id, name, image_url, price_dropship ),
         user:profiles ( user_id, full_name, phone )
@@ -41,6 +41,7 @@ export default function AdminOrders() {
       arr = arr.filter(r => {
         const p = r.product || {}
         const candidate = [
+          String(r.order_no),                  // ✅ пошук по номеру
           r.recipient_name, r.recipient_phone,
           r.user?.full_name, r.user?.phone,
           p.name, r.ttn, r.settlement, r.nova_poshta_branch,
@@ -54,14 +55,14 @@ export default function AdminOrders() {
 
   async function changeStatus(id, status) {
     const prev = rows
-    setRows(s => s.map(r => r.id === id ? { ...r, status } : r)) // оптимістично
+    setRows(s => s.map(r => r.id === id ? { ...r, status } : r))
     const { error } = await supabase.from('orders').update({ status }).eq('id', id)
     if (error) { alert(error.message); setRows(prev) }
   }
 
   async function changeTtn(id, ttn) {
     const prev = rows
-    setRows(s => s.map(r => r.id === id ? { ...r, ttn } : r)) // оптимістично
+    setRows(s => s.map(r => r.id === id ? { ...r, ttn } : r))
     const { error } = await supabase.from('orders').update({ ttn }).eq('id', id)
     if (error) { alert(error.message); setRows(prev) }
   }
@@ -89,8 +90,8 @@ export default function AdminOrders() {
             </select>
 
             <input
-              className="input input-xs w-[260px]"
-              placeholder="Пошук: одержувач / клієнт / товар / ТТН…"
+              className="input input-xs w-[280px]"
+              placeholder="Пошук: № замовлення / одержувач / клієнт / товар / ТТН…"
               value={q}
               onChange={e=>setQ(e.target.value)}
             />
@@ -102,6 +103,7 @@ export default function AdminOrders() {
             <table className="min-w-full text-[14px]">
               <thead className="text-left text-slate-500">
                 <tr>
+                  <th className="py-2 pr-3">№</th>
                   <th className="py-2 pr-3">Дата</th>
                   <th className="py-2 pr-3">Клієнт</th>
                   <th className="py-2 pr-3">Одержувач</th>
@@ -120,6 +122,7 @@ export default function AdminOrders() {
                   const line = unit * qty
                   return (
                     <tr key={r.id} className="border-t border-slate-100 align-top">
+                      <td className="py-3 pr-3 font-semibold whitespace-nowrap">{r.order_no || '—'}</td>
                       <td className="py-3 pr-3 whitespace-nowrap">
                         {new Date(r.created_at).toLocaleString('uk-UA')}
                       </td>
@@ -177,7 +180,7 @@ export default function AdminOrders() {
                   )
                 })}
                 {list.length===0 && (
-                  <tr><td colSpan={8} className="py-6 text-center text-muted">Нічого немає</td></tr>
+                  <tr><td colSpan={9} className="py-6 text-center text-muted">Нічого немає</td></tr>
                 )}
               </tbody>
             </table>

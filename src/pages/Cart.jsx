@@ -1,6 +1,7 @@
-import { useCart } from '../context/CartContext'
-import { useState, useMemo } from 'react'
+// src/pages/Cart.jsx
+import { useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { useCart } from '../context/CartContext'
 
 export default function Cart() {
   const cart = useCart()
@@ -27,30 +28,42 @@ export default function Cart() {
   async function submit() {
     if (!items.length) return
     if (!form.recipient_name || !form.recipient_phone || !form.settlement || !form.nova_poshta_branch) {
-      alert('Заповніть усі поля одержувача.')
-      return
+      alert('Заповніть усі поля одержувача.'); return
     }
     setSending(true)
     try {
       const { data: userData } = await supabase.auth.getUser()
       const user_id = userData?.user?.id || null
 
-      for (const it of items) {
-        await supabase.from('orders').insert({
-          user_id,
-          product_id: it.id,
-          qty: it.qty || 1,
-          my_price: Number(it.my_price ?? it.price_dropship ?? 0),
-          recipient_name: form.recipient_name,
-          recipient_phone: form.recipient_phone,
-          settlement: form.settlement,
-          nova_poshta_branch: form.nova_poshta_branch,
-          shipping_address: null
-        })
-      }
-      alert('Замовлення надіслано! Статус можна переглянути у «Мої замовлення».')
-      window.location.href = '/'
-    } finally { setSending(false) }
+      // ✅ один номер для всіх рядків цього чеку
+      const { data: ono, error: onoErr } = await supabase.rpc('next_order_no')
+      if (onoErr) throw onoErr
+      const order_no = ono
+
+      const rows = items.map(it => ({
+        order_no,
+        user_id,
+        product_id: it.id,
+        qty: it.qty || 1,
+        my_price: Number(it.my_price ?? it.price_dropship ?? 0),
+        recipient_name: form.recipient_name,
+        recipient_phone: form.recipient_phone,
+        settlement: form.settlement,
+        nova_poshta_branch: form.nova_poshta_branch,
+        shipping_address: null
+      }))
+
+      const { error } = await supabase.from('orders').insert(rows)
+      if (error) throw error
+
+      alert(`Замовлення №${order_no} створено! Статус дивіться у «Мої замовлення».`)
+      window.location.href = '/dashboard'
+    } catch (e) {
+      console.error(e)
+      alert(e.message || 'Не вдалося створити замовлення')
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -74,7 +87,6 @@ export default function Cart() {
                 <div className="text-muted text-sm">Дроп-ціна: {Number(it?.price_dropship ?? 0).toFixed(2)} ₴</div>
               </div>
 
-              {/* Ціна продажу (за 1 шт) */}
               <div className="flex items-center gap-2">
                 <div className="text-sm text-muted">Ціна продажу</div>
                 <input
@@ -86,7 +98,6 @@ export default function Cart() {
                 <div className="text-sm text-muted">грн/шт</div>
               </div>
 
-              {/* Кількість */}
               <div className="flex items-center gap-1">
                 <button className="btn-ghost input-xs" onClick={()=>dec(it.id)} aria-label="Зменшити">−</button>
                 <input
@@ -98,10 +109,8 @@ export default function Cart() {
                 <button className="btn-ghost input-xs" onClick={()=>inc(it.id)} aria-label="Збільшити">+</button>
               </div>
 
-              {/* Підсумок по позиції */}
               <div className="w-[120px] text-right font-semibold">{line.toFixed(2)} ₴</div>
 
-              {/* Видалити */}
               <button
                 aria-label="Прибрати"
                 onClick={() => remove(it.id)}
