@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 import { Link, useNavigate } from 'react-router-dom'
@@ -7,31 +7,45 @@ export default function Cart() {
   const nav = useNavigate()
   const { items, removeItem, setQty, setMyPrice, clearCart } = useCart()
 
+  // ✅ захист: працюємо лише з валідними рядками кошика
+  const safeItems = useMemo(() => {
+    if (!Array.isArray(items)) return []
+    return items.filter(it => it && it.product && it.product.id)
+  }, [items])
+
   // Дані одержувача
   const [recipientName, setRecipientName]   = useState('')
   const [recipientPhone, setRecipientPhone] = useState('')
   const [settlement, setSettlement]         = useState('')
   const [branch, setBranch]                 = useState('')
 
-  // ⬇️ нове: спосіб оплати ('cod' або 'bank')
+  // Спосіб оплати
   const [payment, setPayment] = useState('cod')
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const total = useMemo(() => items.reduce((s, it) => {
-    const price = Number(it.myPrice ?? it.product?.price_dropship ?? 0)
-    return s + price * Number(it.qty || 1)
-  }, 0), [items])
+  // Підсумок
+  const total = useMemo(() => {
+    try {
+      return safeItems.reduce((s, it) => {
+        const price = Number(it?.myPrice ?? it?.product?.price_dropship ?? 0)
+        const q = Number(it?.qty || 1)
+        return s + price * q
+      }, 0)
+    } catch {
+      return 0
+    }
+  }, [safeItems])
 
   const canSubmit = useMemo(() => {
-    return items.length > 0 &&
+    return safeItems.length > 0 &&
       recipientName.trim().length >= 2 &&
       recipientPhone.trim().length >= 7 &&
       settlement.trim().length >= 2 &&
       branch.trim().length >= 1 &&
       (payment === 'cod' || payment === 'bank')
-  }, [items, recipientName, recipientPhone, settlement, branch, payment])
+  }, [safeItems, recipientName, recipientPhone, settlement, branch, payment])
 
   async function placeOrder() {
     if (!canSubmit) return
@@ -44,7 +58,7 @@ export default function Cart() {
       const { data: ono, error: onoErr } = await supabase.rpc('next_order_no')
       if (onoErr) throw onoErr
 
-      const rows = items.map(it => ({
+      const rows = safeItems.map(it => ({
         user_id: uid,
         product_id: it.product.id,
         qty: Number(it.qty || 1),
@@ -55,14 +69,14 @@ export default function Cart() {
         nova_poshta_branch: branch.trim(),
         status: 'pending',
         order_no: ono,
-        payment_method: payment,   // ⬅️ пишемо обраний спосіб
+        payment_method: payment,
       }))
 
       const { error: insErr } = await supabase.from('orders').insert(rows)
       if (insErr) throw insErr
 
-      clearCart()
-      nav('/dashboard')
+      clearCart()          // очищаємо state + localStorage
+      nav('/dashboard')    // перекидаємо у «Мої замовлення»
     } catch (e) {
       setError(e.message || 'Помилка оформлення')
     } finally {
@@ -80,43 +94,52 @@ export default function Cart() {
       {/* Товари */}
       <div className="card mb-4">
         <div className="card-body">
-          {items.length === 0 ? (
+          {safeItems.length === 0 ? (
             <div className="text-muted">Кошик порожній.</div>
           ) : (
             <div className="space-y-3">
-              {items.map(it => (
-                <div key={it.product.id} className="rounded-xl border border-slate-100 p-3 flex items-center gap-3">
-                  <div className="w-20 h-20 rounded-lg overflow-hidden bg-slate-100">
-                    {it.product.image_url && <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{it.product.name}</div>
-                    <div className="text-muted text-sm">Дроп-ціна: {(Number(it.product.price_dropship)||0).toFixed(2)} ₴</div>
-                  </div>
+              {safeItems.map(it => {
+                const pid = it.product.id
+                const basePrice = Number(it.product?.price_dropship ?? 0)
+                const curPrice  = Number(it.myPrice ?? basePrice)
+                const qty       = Number(it.qty || 1)
+                return (
+                  <div key={pid} className="rounded-xl border border-slate-100 p-3 flex items-center gap-3">
+                    <div className="w-20 h-20 rounded-lg overflow-hidden bg-slate-100">
+                      {it.product?.image_url && (
+                        <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />
+                      )}
+                    </div>
 
-                  <div className="flex items-center gap-2 w-[140px]">
-                    <span className="text-sm text-muted">Кількість</span>
-                    <input
-                      type="number" min={1}
-                      className="input input-xs w-[64px] text-center"
-                      value={it.qty}
-                      onChange={e=>setQty(it.product.id, Math.max(1, Number(e.target.value||1)))}
-                    />
-                  </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{it.product?.name || 'Товар'}</div>
+                      <div className="text-muted text-sm">Дроп-ціна: {basePrice.toFixed(2)} ₴</div>
+                    </div>
 
-                  <div className="flex items-center gap-2 w-[210px]">
-                    <span className="text-sm text-muted">Ціна продажу</span>
-                    <input
-                      type="number" min={0}
-                      className="input input-xs w-[100px] text-right"
-                      value={it.myPrice ?? it.product.price_dropship}
-                      onChange={e=>setMyPrice(it.product.id, Number(e.target.value||0))}
-                    />
-                  </div>
+                    <div className="flex items-center gap-2 w-[140px]">
+                      <span className="text-sm text-muted">Кількість</span>
+                      <input
+                        type="number" min={1}
+                        className="input input-xs w-[64px] text-center"
+                        value={qty}
+                        onChange={e => setQty(pid, Math.max(1, Number(e.target.value || 1)))}
+                      />
+                    </div>
 
-                  <button className="btn-ghost" onClick={()=>removeItem(it.product.id)} title="Прибрати">×</button>
-                </div>
-              ))}
+                    <div className="flex items-center gap-2 w-[210px]">
+                      <span className="text-sm text-muted">Ціна продажу</span>
+                      <input
+                        type="number" min={0}
+                        className="input input-xs w-[100px] text-right"
+                        value={curPrice}
+                        onChange={e => setMyPrice(pid, Number(e.target.value || 0))}
+                      />
+                    </div>
+
+                    <button className="btn-ghost" onClick={() => removeItem(pid)} title="Прибрати">×</button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -159,7 +182,7 @@ export default function Cart() {
                     type="radio" className="accent-indigo-600"
                     name="payment" value="cod"
                     checked={payment === 'cod'}
-                    onChange={()=>setPayment('cod')}
+                    onChange={() => setPayment('cod')}
                   />
                   <div>
                     <div className="font-medium">Післяплата</div>
@@ -172,7 +195,7 @@ export default function Cart() {
                     type="radio" className="accent-indigo-600"
                     name="payment" value="bank"
                     checked={payment === 'bank'}
-                    onChange={()=>setPayment('bank')}
+                    onChange={() => setPayment('bank')}
                   />
                   <div>
                     <div className="font-medium">Оплата по реквізитам</div>
