@@ -7,102 +7,104 @@ import { useCart } from '../context/CartContext'
 export default function NavBar() {
   const [user, setUser] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [open, setOpen] = useState(false) // ⬅️ мобільне меню
 
-  // Беремо товари з контексту і рахуємо загальну кількість штук
-  const { items = [] } = useCart()
+  const { items = [] } = useCart() || {}
   const cartQty = useMemo(
-    () => items.reduce((s, it) => s + Number(it?.qty || 0), 0),
+    () => (Array.isArray(items) ? items.reduce((s, it) => s + Number(it?.qty || 0), 0) : 0),
     [items]
   )
 
   useEffect(() => {
-    let unsubscribe = () => {}
-
-    async function check(u) {
-      try {
-        if (!u) {
-          setIsAdmin(false)
-          return
-        }
-        const { data, error } = await supabase.rpc('is_admin', { u: u.id })
-        if (error) {
-          console.warn('is_admin RPC error:', error)
-          setIsAdmin(false)
-          return
-        }
-        setIsAdmin(Boolean(data))
-      } catch (e) {
-        console.warn('is_admin RPC failed:', e)
-        setIsAdmin(false)
-      }
-    }
-
+    let unsub = () => {}
     async function init() {
       const { data } = await supabase.auth.getSession()
       const u = data?.session?.user ?? null
-      setUser(u)
-      await check(u)
+      setUser(u); await checkAdmin(u)
     }
     init()
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
-      const u = session?.user ?? null
-      setUser(u)
-      check(u)
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => {
+      const u = s?.user ?? null
+      setUser(u); checkAdmin(u)
     })
-    unsubscribe = () => sub?.subscription?.unsubscribe?.()
-
-    return () => unsubscribe()
+    unsub = () => sub?.subscription?.unsubscribe?.()
+    return () => unsub()
   }, [])
 
-  async function logout() {
+  async function checkAdmin(u) {
     try {
-      await supabase.auth.signOut()
-    } catch {}
+      if (!u) return setIsAdmin(false)
+      const { data, error } = await supabase.rpc('is_admin', { u: u.id })
+      if (error) return setIsAdmin(false)
+      setIsAdmin(Boolean(data))
+    } catch { setIsAdmin(false) }
   }
+
+  async function logout() { try { await supabase.auth.signOut() } finally { setOpen(false) } }
+
+  // посилання меню (щоб не дублювати)
+  const MenuLinks = ({ mobile = false }) => (
+    <>
+      <Link to="/" className={linkCls(mobile)} onClick={()=>setOpen(false)}>Каталог</Link>
+
+      {user && (
+        <Link to="/dashboard" className={linkCls(mobile)} onClick={()=>setOpen(false)}>
+          Мої замовлення
+        </Link>
+      )}
+
+      {user && (
+        <Link to="/cart" className={linkCls(mobile) + ' relative'} onClick={()=>setOpen(false)}>
+          <span>Кошик</span>
+          {cartQty > 0 && (
+            <span
+              className={
+                mobile
+                ? 'ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-indigo-600 text-white'
+                : 'absolute -top-2 -right-3 min-w-[20px] h-[20px] px-1 rounded-full bg-indigo-600 text-white text-[12px] leading-[20px] text-center'
+              }
+              title={`Товарів у кошику: ${cartQty}`}
+            >
+              {cartQty}
+            </span>
+          )}
+        </Link>
+      )}
+
+      {isAdmin && (
+        <>
+          <Link to="/admin" className={linkCls(mobile)} onClick={()=>setOpen(false)}>Адмін</Link>
+          <Link to="/admin/orders" className={linkCls(mobile)} onClick={()=>setOpen(false)}>Замовлення (адмін)</Link>
+        </>
+      )}
+
+      <Link to="/about" className={linkCls(mobile)} onClick={()=>setOpen(false)}>Про нас</Link>
+      <Link to="/contacts" className={linkCls(mobile)} onClick={()=>setOpen(false)}>Контакти</Link>
+    </>
+  )
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-3 h-14 flex items-center gap-4">
-        <Link to="/" className="font-semibold text-indigo-600">Drop-UA</Link>
+      <div className="max-w-6xl mx-auto px-3 h-14 flex items-center gap-3">
+        {/* Лого + бургер */}
+        <div className="flex items-center gap-3">
+          <button
+            className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200"
+            onClick={() => setOpen(v => !v)}
+            aria-label="Меню"
+          >
+            {open ? '✕' : '☰'}
+          </button>
+          <Link to="/" className="font-semibold text-indigo-600">Drop-UA</Link>
+        </div>
 
-        <nav className="flex items-center gap-4 text-sm">
-          <Link to="/" className="hover:text-indigo-600">Каталог</Link>
-
-          {user && (
-            <Link to="/dashboard" className="hover:text-indigo-600">
-              Мої замовлення
-            </Link>
-          )}
-
-          {user && (
-            <Link to="/cart" className="hover:text-indigo-600 relative">
-              <span>Кошик</span>
-              {cartQty > 0 && (
-                <span
-                  className="absolute -top-2 -right-3 min-w-[20px] h-[20px] px-1
-                             rounded-full bg-indigo-600 text-white text-[12px]
-                             leading-[20px] text-center"
-                  title={`Товарів у кошику: ${cartQty}`}
-                >
-                  {cartQty}
-                </span>
-              )}
-            </Link>
-          )}
-
-          {isAdmin && (
-            <>
-              <Link to="/admin" className="hover:text-indigo-600">Адмін</Link>
-              <Link to="/admin/orders" className="hover:text-indigo-600">Замовлення (адмін)</Link>
-            </>
-          )}
-
-          <Link to="/about" className="hover:text-indigo-600">Про нас</Link>
-          <Link to="/contacts" className="hover:text-indigo-600">Контакти</Link>
+        {/* Десктоп-меню */}
+        <nav className="hidden md:flex items-center gap-4 text-sm">
+          <MenuLinks />
         </nav>
 
-        <div className="ml-auto">
+        {/* Правий блок */}
+        <div className="ml-auto hidden md:block">
           {user ? (
             <button
               onClick={logout}
@@ -120,6 +122,39 @@ export default function NavBar() {
           )}
         </div>
       </div>
+
+      {/* Мобільне меню */}
+      {open && (
+        <div className="md:hidden border-t border-slate-200 bg-white">
+          <div className="max-w-6xl mx-auto px-3 py-3 flex flex-col gap-2 text-base">
+            <MenuLinks mobile />
+            <div className="pt-2">
+              {user ? (
+                <button
+                  onClick={logout}
+                  className="w-full h-10 px-4 rounded-lg border border-slate-300 bg-white hover:bg-slate-50"
+                >
+                  Вийти
+                </button>
+              ) : (
+                <Link
+                  to="/login"
+                  className="w-full h-10 px-4 inline-flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                  onClick={()=>setOpen(false)}
+                >
+                  Вхід / Реєстрація
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   )
+}
+
+function linkCls(mobile) {
+  return mobile
+    ? 'py-2 text-slate-700 hover:text-indigo-600'
+    : 'hover:text-indigo-600 text-sm'
 }

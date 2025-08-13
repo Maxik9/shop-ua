@@ -1,3 +1,4 @@
+// src/pages/Cart.jsx
 import { useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
@@ -7,25 +8,16 @@ export default function Cart() {
   const nav = useNavigate()
   const { items, removeItem, setQty, setMyPrice, clearCart } = useCart()
 
-  // ✅ захист: працюємо лише з валідними рядками кошика
-  const safeItems = useMemo(() => {
-    if (!Array.isArray(items)) return []
-    return items.filter(it => it && it.product && it.product.id)
-  }, [items])
+  const safeItems = useMemo(() => Array.isArray(items) ? items.filter(it => it?.product?.id) : [], [items])
 
-  // Дані одержувача
   const [recipientName, setRecipientName]   = useState('')
   const [recipientPhone, setRecipientPhone] = useState('')
   const [settlement, setSettlement]         = useState('')
   const [branch, setBranch]                 = useState('')
-
-  // Спосіб оплати
   const [payment, setPayment] = useState('cod')
-
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  // Підсумок
   const total = useMemo(() => {
     try {
       return safeItems.reduce((s, it) => {
@@ -33,19 +25,17 @@ export default function Cart() {
         const q = Number(it?.qty || 1)
         return s + price * q
       }, 0)
-    } catch {
-      return 0
-    }
+    } catch { return 0 }
   }, [safeItems])
 
-  const canSubmit = useMemo(() => {
-    return safeItems.length > 0 &&
-      recipientName.trim().length >= 2 &&
-      recipientPhone.trim().length >= 7 &&
-      settlement.trim().length >= 2 &&
-      branch.trim().length >= 1 &&
-      (payment === 'cod' || payment === 'bank')
-  }, [safeItems, recipientName, recipientPhone, settlement, branch, payment])
+  const canSubmit = useMemo(() =>
+    safeItems.length > 0 &&
+    recipientName.trim().length >= 2 &&
+    recipientPhone.trim().length >= 7 &&
+    settlement.trim().length >= 2 &&
+    branch.trim().length >= 1 &&
+    (payment === 'cod' || payment === 'bank')
+  , [safeItems, recipientName, recipientPhone, settlement, branch, payment])
 
   async function placeOrder() {
     if (!canSubmit) return
@@ -75,8 +65,8 @@ export default function Cart() {
       const { error: insErr } = await supabase.from('orders').insert(rows)
       if (insErr) throw insErr
 
-      clearCart()          // очищаємо state + localStorage
-      nav('/dashboard')    // перекидаємо у «Мої замовлення»
+      clearCart()
+      nav('/dashboard')
     } catch (e) {
       setError(e.message || 'Помилка оформлення')
     } finally {
@@ -85,7 +75,7 @@ export default function Cart() {
   }
 
   return (
-    <div className="container-page my-6">
+    <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
       <div className="flex items-center justify-between mb-4 gap-3">
         <h1 className="h1">Кошик</h1>
         <Link className="btn-outline" to="/">До каталогу</Link>
@@ -104,39 +94,39 @@ export default function Cart() {
                 const curPrice  = Number(it.myPrice ?? basePrice)
                 const qty       = Number(it.qty || 1)
                 return (
-                  <div key={pid} className="rounded-xl border border-slate-100 p-3 flex items-center gap-3">
-                    <div className="w-20 h-20 rounded-lg overflow-hidden bg-slate-100">
+                  <div key={pid} className="rounded-xl border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="w-full sm:w-20 sm:h-20 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
                       {it.product?.image_url && (
                         <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />
                       )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{it.product?.name || 'Товар'}</div>
+                      <div className="font-medium">{it.product?.name || 'Товар'}</div>
                       <div className="text-muted text-sm">Дроп-ціна: {basePrice.toFixed(2)} ₴</div>
                     </div>
 
-                    <div className="flex items-center gap-2 w-[140px]">
+                    <div className="flex items-center gap-2 sm:w-[140px]">
                       <span className="text-sm text-muted">Кількість</span>
                       <input
                         type="number" min={1}
-                        className="input input-xs w-[64px] text-center"
+                        className="input input-xs w-[80px] text-center"
                         value={qty}
                         onChange={e => setQty(pid, Math.max(1, Number(e.target.value || 1)))}
                       />
                     </div>
 
-                    <div className="flex items-center gap-2 w-[210px]">
+                    <div className="flex items-center gap-2 sm:w-[220px]">
                       <span className="text-sm text-muted">Ціна продажу</span>
                       <input
                         type="number" min={0}
-                        className="input input-xs w-[100px] text-right"
+                        className="input input-xs w-[120px] text-right"
                         value={curPrice}
                         onChange={e => setMyPrice(pid, Number(e.target.value || 0))}
                       />
                     </div>
 
-                    <button className="btn-ghost" onClick={() => removeItem(pid)} title="Прибрати">×</button>
+                    <button className="btn-ghost self-end sm:self-auto" onClick={() => removeItem(pid)} title="Прибрати">×</button>
                   </div>
                 )
               })}
@@ -149,7 +139,7 @@ export default function Cart() {
       <div className="card mb-4">
         <div className="card-body flex items-center justify-between">
           <div className="text-muted">Всього:</div>
-          <div className="price text-[22px] font-semibold">{total.toFixed(2)} ₴</div>
+          <div className="price text-[20px] sm:text-[22px] font-semibold">{total.toFixed(2)} ₴</div>
         </div>
       </div>
 
@@ -178,12 +168,8 @@ export default function Cart() {
 
               <div className="space-y-2">
                 <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="radio" className="accent-indigo-600"
-                    name="payment" value="cod"
-                    checked={payment === 'cod'}
-                    onChange={() => setPayment('cod')}
-                  />
+                  <input type="radio" className="accent-indigo-600" name="payment" value="cod"
+                         checked={payment === 'cod'} onChange={()=>setPayment('cod')} />
                   <div>
                     <div className="font-medium">Післяплата</div>
                     <div className="text-sm text-muted">Оплата при отриманні</div>
@@ -191,12 +177,8 @@ export default function Cart() {
                 </label>
 
                 <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="radio" className="accent-indigo-600"
-                    name="payment" value="bank"
-                    checked={payment === 'bank'}
-                    onChange={() => setPayment('bank')}
-                  />
+                  <input type="radio" className="accent-indigo-600" name="payment" value="bank"
+                         checked={payment === 'bank'} onChange={()=>setPayment('bank')} />
                   <div>
                     <div className="font-medium">Оплата по реквізитам</div>
                     <div className="text-sm text-muted">Переказ на картку/рахунок до відправлення</div>

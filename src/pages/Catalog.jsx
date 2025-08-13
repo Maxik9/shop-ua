@@ -1,3 +1,4 @@
+// src/pages/Catalog.jsx
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import ProductCard from '../components/ProductCard'
@@ -11,47 +12,57 @@ export default function Catalog() {
   useEffect(() => { loadCategories() }, [])
   useEffect(() => { loadProducts() }, [selected])
 
-  async function loadCategories() {
+  async function loadCategories(){
     const { data } = await supabase.from('categories').select('*').order('name', { ascending: true })
     setCategories(data || [])
   }
 
-  async function loadProducts() {
+  async function loadProducts(){
     setLoading(true)
-    let q = supabase.from('products').select('*').order('created_at', { ascending: false })
-    if (selected !== 'all') q = q.eq('category_id', selected)
-    const { data } = await q
-    setProducts(data || [])
-    setLoading(false)
+    try {
+      let query = supabase.from('products').select('*').order('created_at', { ascending: false })
+      if (selected !== 'all') query = query.eq('category_id', selected)
+      const { data, error } = await query
+      if (error) throw error
+      setProducts(data || [])
+    } catch {
+      setProducts([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="container-page my-5">
+    <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
       {/* Фільтри */}
       <div className="flex flex-wrap gap-2 mb-4">
-        <FilterBtn active={selected==='all'} onClick={()=>setSelected('all')}>Усі</FilterBtn>
+        <button onClick={()=>setSelected('all')}
+                className={chipCls(selected==='all')}>
+          Усі
+        </button>
         {categories.map(c => (
-          <FilterBtn key={c.id} active={selected===c.id} onClick={()=>setSelected(c.id)}>
+          <button key={c.id}
+                  onClick={()=>setSelected(c.id)}
+                  className={chipCls(selected===c.id)}>
             {c.name}
-          </FilterBtn>
+          </button>
         ))}
       </div>
 
       {loading && <p className="text-muted">Завантаження…</p>}
       {!loading && products.length===0 && <p className="text-muted">Нічого не знайдено.</p>}
 
-      {/* Сітка */}
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Сітка карток (адаптив) */}
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 mt-4">
         {products.map(p => <ProductCard key={p.id} product={p} />)}
       </div>
     </div>
   )
 }
 
-function FilterBtn({active, children, ...props}) {
-  const base = 'btn-ghost'
-  const normal = 'btn-outline'
-  return (
-    <button className={active ? base : normal} {...props}>{children}</button>
-  )
+function chipCls(active) {
+  return `px-3 py-1.5 rounded-full border text-sm ${
+    active ? 'border-indigo-600 text-indigo-700 bg-indigo-50'
+           : 'border-slate-200 text-slate-700 hover:bg-slate-100'
+  }`
 }
