@@ -1,58 +1,71 @@
+// src/components/ProductCard.jsx
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 
 export default function ProductCard({ product }) {
-  const { addItem } = useCart()
+  const cart = useCart()
 
-  function add() {
-    addItem(product, 1, product.price_dropship)
+  function addToCart() {
+    // Підтримує різні назви методів у твоєму CartContext,
+    // щоб не ламати поточну реалізацію.
+    if (cart?.addItem) {
+      cart.addItem(product, 1)
+    } else if (cart?.add) {
+      cart.add(product)
+    } else if (cart?.addProduct) {
+      cart.addProduct(product)
+    }
   }
 
   return (
     <div className="card h-full flex flex-col">
-      {/* фото 1:1 */}
-      <div className="w-full aspect-square rounded-2xl overflow-hidden bg-slate-100">
-        {product?.image_url ? (
-          <img
-            src={product.image_url}
-            alt={product.name}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full grid place-items-center text-muted">
-            Немає фото
-          </div>
-        )}
-      </div>
+      {/* === Клік по ЗОБРАЖЕННЮ відкриває картку товару === */}
+      <Link
+        to={`/product/${product.id}`}
+        className="block rounded-t-xl overflow-hidden bg-slate-100"
+        aria-label={product.name}
+      >
+        <div className="aspect-square w-full">
+          {product.image_url ? (
+            <img
+              src={product.image_url}
+              alt={product.name}
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-full h-full grid place-items-center text-slate-400">
+              Немає фото
+            </div>
+          )}
+        </div>
+      </Link>
 
-      {/* контент */}
-      <div className="card-body flex-1 flex flex-col">
-        {/* назва: до 2х рядків, однакова висота */}
+      <div className="card-body flex flex-col gap-3">
+        {/* === Клік по НАЗВІ теж відкриває картку === */}
         <Link
           to={`/product/${product.id}`}
-          className="block font-semibold text-[18px] leading-snug line-clamp-2 min-h-[48px]"
-          title={product.name}
+          className="font-medium text-slate-900 hover:text-indigo-700 line-clamp-2"
         >
           {product.name}
         </Link>
 
-        {/* ціна: вирівняно по базовій лінії, валюта не “стрибає” */}
-        <div className="mt-2 flex items-baseline justify-between">
-          <div className="text-muted">Дроп-ціна:</div>
-          <div className="font-semibold text-[18px] whitespace-nowrap">
-            {(Number(product.price_dropship) || 0).toFixed(2)}{' '}
-            <span className="text-slate-500">₴</span>
+        <div className="mt-auto flex items-center justify-between gap-3">
+          <div className="text-sm text-slate-500">
+            Дроп-ціна:{' '}
+            <span className="price font-semibold text-slate-900">
+              {(Number(product.price_dropship) || 0).toFixed(2)} ₴
+            </span>
           </div>
-        </div>
 
-        {/* кнопка: завжди рівно, на мобайлі повна ширина */}
-        <button
-          onClick={add}
-          className="btn-primary mt-3 w-full sm:w-auto self-start"
-        >
-          До кошика
-        </button>
+          <button
+            type="button"
+            className="btn-primary whitespace-nowrap"
+            onClick={addToCart}
+          >
+            До кошика
+          </button>
+        </div>
       </div>
     </div>
   )
