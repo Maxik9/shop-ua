@@ -2,7 +2,13 @@ import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 
 export default function ProductCard({ product }) {
-  const { add } = useCart()
+  const { addItem } = useCart()
+
+  const onAdd = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    addItem(product, 1, product.price_dropship)
+  }
 
   return (
     <div className="card overflow-hidden">
@@ -33,7 +39,7 @@ export default function ProductCard({ product }) {
             </b>
           </span>
 
-          <button onClick={() => add(product)} className="btn-primary">
+          <button onClick={onAdd} className="btn-primary">
             До кошика
           </button>
         </div>

@@ -6,7 +6,7 @@ import { useCart } from '../context/CartContext'
 export default function Product() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { add } = useCart()
+  const { addItem } = useCart()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -21,30 +21,20 @@ export default function Product() {
         setLoading(true)
         setError('')
 
-        // витягуємо явні колонки (gallery_json може бути відсутня — це ок)
         const { data, error } = await supabase
           .from('products')
           .select('id,name,description,price_dropship,image_url,gallery_json')
           .eq('id', id)
           .maybeSingle()
 
-        if (error) {
-          console.error('Supabase error:', error)
-          throw error
-        }
-        if (!data) {
-          throw new Error('Товар не знайдено')
-        }
+        if (error) throw error
+        if (!data) throw new Error('Товар не знайдено')
 
-        // нормалізуємо галерею
         let g = []
         const raw = data.gallery_json
         if (Array.isArray(raw)) g = raw
         else if (typeof raw === 'string' && raw.trim()) {
-          try {
-            const parsed = JSON.parse(raw)
-            if (Array.isArray(parsed)) g = parsed
-          } catch {}
+          try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) g = parsed } catch {}
         }
 
         const full = [data.image_url, ...g].filter(Boolean)
@@ -56,9 +46,7 @@ export default function Product() {
           setIdx(0)
         }
       } catch (e) {
-        if (mounted) {
-          setError(e.message || 'Помилка завантаження товару')
-        }
+        if (mounted) setError(e.message || 'Помилка завантаження товару')
       } finally {
         if (mounted) setLoading(false)
       }
@@ -67,11 +55,7 @@ export default function Product() {
   }, [id])
 
   if (loading) {
-    return (
-      <div className="container-page my-6">
-        Завантаження…
-      </div>
-    )
+    return <div className="container-page my-6">Завантаження…</div>
   }
 
   if (error) {
@@ -97,6 +81,8 @@ export default function Product() {
   }
 
   const cur = gallery[idx] || product.image_url
+  const addOne = () => addItem(product, 1, product.price_dropship)
+  const buyNow = () => { addItem(product, 1, product.price_dropship); navigate('/cart') }
 
   function prev() { if (gallery.length) setIdx(v => (v - 1 + gallery.length) % gallery.length) }
   function next() { if (gallery.length) setIdx(v => (v + 1) % gallery.length) }
@@ -152,13 +138,8 @@ export default function Product() {
           </div>
 
           <div className="flex gap-3">
-            <button className="btn-outline" onClick={() => add(product)}>Додати в кошик</button>
-            <button
-              className="btn-primary"
-              onClick={() => { add(product); navigate('/cart') }}
-            >
-              Замовити
-            </button>
+            <button className="btn-outline" onClick={addOne}>Додати в кошик</button>
+            <button className="btn-primary" onClick={buyNow}>Замовити</button>
           </div>
         </div>
       </div>
