@@ -12,7 +12,7 @@ const STATUS_UA = {
   canceled: 'Скасовано',
 }
 
-// колірні бейджі для статусів
+// бейдж статусу
 function StatusBadge({ status }) {
   const s = status || 'pending'
   const map = {
@@ -24,11 +24,7 @@ function StatusBadge({ status }) {
     canceled:  'bg-rose-100 text-rose-700',
   }
   const cls = map[s] || map.pending
-  return (
-    <span className={`px-2 py-1 rounded-lg text-sm ${cls}`}>
-      {STATUS_UA[s] ?? s}
-    </span>
-  )
+  return <span className={`px-2 py-1 rounded-lg text-sm ${cls}`}>{STATUS_UA[s] ?? s}</span>
 }
 
 function fmtDate(ts) {
@@ -45,13 +41,13 @@ export default function Dashboard() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [q, setQ] = useState('') // ⟵ ПОШУК
 
   useEffect(() => {
     let mounted = true
     ;(async () => {
       setLoading(true); setError('')
       try {
-        // вибираємо замовлення користувача з приєднаним продуктом
         const { data: sessionData } = await supabase.auth.getSession()
         const uid = sessionData?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
@@ -60,6 +56,7 @@ export default function Dashboard() {
           .from('orders')
           .select(`
             id, status, qty, my_price, created_at,
+            recipient_name, recipient_phone,
             product:products(id, name, image_url, price_dropship)
           `)
           .eq('user_id', uid)
@@ -76,15 +73,50 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  const totalAll = useMemo(() =>
-    (orders || []).reduce((sum, o) => sum + Number(o.my_price || 0) * Number(o.qty || 1), 0)
-  , [orders])
+  // Фільтр за запитом q
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return orders
+    return (orders || []).filter(o => {
+      const p = o.product || {}
+      const unit = Number(o.my_price ?? p.price_dropship ?? 0)
+      const qty  = Number(o.qty || 1)
+      const sum  = unit * qty
+      const candidate = [
+        p.name,
+        o.recipient_name,
+        o.recipient_phone,
+        STATUS_UA[o.status] || o.status, // укр/англ
+        fmtDate(o.created_at),
+        String(unit),
+        String(qty),
+        String(sum)
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return candidate.includes(t)
+    })
+  }, [orders, q])
+
+  const totalAll = useMemo(
+    () => (filtered || []).reduce((s, o) => s + Number(o.my_price || 0) * Number(o.qty || 1), 0),
+    [filtered]
+  )
 
   return (
     <div className="container-page my-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-3">
         <h1 className="h1">Мої замовлення</h1>
-        <Link to="/" className="btn-outline">До каталогу</Link>
+        <div className="flex items-center gap-2">
+          <input
+            className="input input-xs w-[260px]"
+            placeholder="Пошук: товар / статус / одержувач / телефон…"
+            value={q}
+            onChange={e=>setQ(e.target.value)}
+          />
+          <Link to="/" className="btn-outline">До каталогу</Link>
+        </div>
       </div>
 
       {loading && <div className="card"><div className="card-body">Завантаження…</div></div>}
@@ -97,55 +129,58 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!loading && !error && orders.length === 0 && (
+      {!loading && !error && filtered.length === 0 && (
         <div className="card">
-          <div className="card-body text-muted">Замовлень поки немає.</div>
+          <div className="card-body text-muted">
+            Нічого не знайдено за запитом «{q}».
+          </div>
         </div>
       )}
 
       <div className="space-y-3">
-        {orders.map(o => {
+        {filtered.map(o => {
           const p = o.product || {}
           const unit = Number(o.my_price ?? p.price_dropship ?? 0)
           const qty  = Number(o.qty || 1)
           const line = unit * qty
-        return (
-          <div key={o.id} className="card">
-            <div className="p-4 flex items-center gap-4">
-              <div className="w-[96px] h-[72px] rounded-xl overflow-hidden bg-slate-100">
-                {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="font-semibold truncate">{p.name || 'Товар'}</div>
-                  <StatusBadge status={o.status} />
+          return (
+            <div key={o.id} className="card">
+              <div className="p-4 flex items-center gap-4">
+                <div className="w-[96px] h-[72px] rounded-xl overflow-hidden bg-slate-100">
+                  {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
                 </div>
-                <div className="text-muted text-sm mt-1">
-                  Створено: {fmtDate(o.created_at)}
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-semibold truncate">{p.name || 'Товар'}</div>
+                    <StatusBadge status={o.status} />
+                  </div>
+                  <div className="text-muted text-sm mt-1">
+                    Створено: {fmtDate(o.created_at)}
+                  </div>
                 </div>
-              </div>
 
-              <div className="hidden sm:block text-right text-sm text-muted">
-                <div>Кількість</div>
-                <div className="font-medium text-slate-900">{qty}</div>
-              </div>
+                <div className="hidden sm:block text-right text-sm text-muted">
+                  <div>Кількість</div>
+                  <div className="font-medium text-slate-900">{qty}</div>
+                </div>
 
-              <div className="hidden sm:block text-right text-sm text-muted">
-                <div>Ціна / шт</div>
-                <div className="font-medium text-slate-900">{unit.toFixed(2)} ₴</div>
-              </div>
+                <div className="hidden sm:block text-right text-sm text-muted">
+                  <div>Ціна / шт</div>
+                  <div className="font-medium text-slate-900">{unit.toFixed(2)} ₴</div>
+                </div>
 
-              <div className="text-right">
-                <div className="text-sm text-muted">Сума</div>
-                <div className="font-semibold">{line.toFixed(2)} ₴</div>
+                <div className="text-right">
+                  <div className="text-sm text-muted">Сума</div>
+                  <div className="font-semibold">{line.toFixed(2)} ₴</div>
+                </div>
               </div>
             </div>
-          </div>
-        )})}
+          )
+        })}
       </div>
 
-      {orders.length > 0 && (
+      {filtered.length > 0 && (
         <div className="mt-4 text-right">
           <div className="text-[18px]">
             Разом:&nbsp;<span className="price text-[22px]">{totalAll.toFixed(2)} ₴</span>
