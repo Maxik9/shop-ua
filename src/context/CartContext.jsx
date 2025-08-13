@@ -1,26 +1,18 @@
-// src/context/CartContext.jsx
 import { createContext, useContext, useEffect, useState } from 'react'
-
 const CartCtx = createContext(null)
-
 const LS_KEY = 'ds_cart_v1'
 
 export function CartProvider({ children }) {
   const [items, setItems] = useState([])
 
-  // завантаження з localStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY)
       if (raw) setItems(JSON.parse(raw))
     } catch {}
   }, [])
-
-  // збереження
   useEffect(() => {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(items))
-    } catch {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify(items)) } catch {}
   }, [items])
 
   function addItem(product, qty = 1, myPrice) {
@@ -38,23 +30,10 @@ export function CartProvider({ children }) {
       return [...prev, { product, qty: Number(qty || 1), myPrice }]
     })
   }
-
-  function setQty(productId, qty) {
-    setItems(prev => prev.map(x => x.product.id === productId ? { ...x, qty } : x))
-  }
-
-  function setMyPrice(productId, price) {
-    setItems(prev => prev.map(x => x.product.id === productId ? { ...x, myPrice: price } : x))
-  }
-
-  function removeItem(productId) {
-    setItems(prev => prev.filter(x => x.product.id !== productId))
-  }
-
-  function clearCart() {
-    setItems([])
-    try { localStorage.removeItem(LS_KEY) } catch {}
-  }
+  const setQty     = (id, qty)   => setItems(p => p.map(x => x.product.id === id ? { ...x, qty } : x))
+  const setMyPrice = (id, price) => setItems(p => p.map(x => x.product.id === id ? { ...x, myPrice: price } : x))
+  const removeItem = (id)        => setItems(p => p.filter(x => x.product.id !== id))
+  function clearCart() { setItems([]); try { localStorage.removeItem(LS_KEY) } catch {} }
 
   return (
     <CartCtx.Provider value={{ items, addItem, setQty, setMyPrice, removeItem, clearCart }}>
@@ -62,5 +41,4 @@ export function CartProvider({ children }) {
     </CartCtx.Provider>
   )
 }
-
 export const useCart = () => useContext(CartCtx)
