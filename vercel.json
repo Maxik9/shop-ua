@@ -1,6 +1,5 @@
 {
-  "routes": [
-    { "handle": "filesystem" },          // спочатку віддати реальні файли (CSS/JS/зображення)
-    { "src": "/.*", "dest": "/" }        // усе інше -> index.html
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
