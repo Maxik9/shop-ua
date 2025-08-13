@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [q, setQ] = useState('') // ⟵ Пошук за ПІБ/телефоном одержувача
 
   useEffect(() => {
     let mounted = true
@@ -36,7 +37,6 @@ export default function Dashboard() {
         const uid = sessionData?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
-        // Тягнемо замовлення поточного користувача + прив’язаний товар
         const { data, error } = await supabase
           .from('orders')
           .select(`
@@ -58,22 +58,40 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
+  // Локальний фільтр по ПІБ або телефону одержувача
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return rows
+    return (rows || []).filter(r => {
+      const name = (r.recipient_name || '').toLowerCase()
+      const phone = (r.recipient_phone || '').toLowerCase()
+      return name.includes(t) || phone.includes(t)
+    })
+  }, [rows, q])
+
   const totalPayout = useMemo(() => {
-    return (rows || []).reduce((sum, r) => {
+    return (filtered || []).reduce((sum, r) => {
       const p = r.product || {}
       const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)  // ціна продажу за 1
-      const unitDrop = Number(p.price_dropship ?? 0)                // дроп-ціна сайту за 1
+      const unitDrop = Number(p.price_dropship ?? 0)                // дроп-ціна за 1
       const qty = Number(r.qty || 1)
-      const diff = (unitSale - unitDrop) * qty
-      return sum + diff
+      return sum + (unitSale - unitDrop) * qty
     }, 0)
-  }, [rows])
+  }, [filtered])
 
   return (
     <div className="container-page my-6">
       <div className="flex items-center justify-between mb-4 gap-3">
         <h1 className="h1">Мої замовлення</h1>
-        <Link to="/" className="btn-outline">До каталогу</Link>
+        <div className="flex items-center gap-2">
+          <input
+            className="input input-xs w-[280px]"
+            placeholder="Пошук: ПІБ або телефон одержувача…"
+            value={q}
+            onChange={e=>setQ(e.target.value)}
+          />
+          <Link to="/" className="btn-outline">До каталогу</Link>
+        </div>
       </div>
 
       {loading && <div className="card"><div className="card-body">Завантаження…</div></div>}
@@ -86,20 +104,22 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!loading && !error && rows.length === 0 && (
+      {!loading && !error && filtered.length === 0 && (
         <div className="card">
-          <div className="card-body text-muted">Замовлень поки немає.</div>
+          <div className="card-body text-muted">
+            Нічого не знайдено за запитом «{q}».
+          </div>
         </div>
       )}
 
-      {rows.length > 0 && (
+      {filtered.length > 0 && (
         <div className="card">
           <div className="card-body overflow-x-auto">
             <table className="min-w-full text-[14px]">
               <thead className="text-left text-slate-500">
                 <tr>
                   <th className="py-2 pr-3">Дата</th>
-                  <th className="py-2 pr-3">Клієнт</th>
+                  <th className="py-2 pr-3">Клієнт (одержувач)</th>
                   <th className="py-2 pr-3">Товар</th>
                   <th className="py-2 pr-3">ТТН</th>
                   <th className="py-2 pr-3">Статус</th>
@@ -107,12 +127,12 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => {
+                {filtered.map(r => {
                   const p = r.product || {}
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
                   const qty = Number(r.qty || 1)
-                  const payout = (unitSale - unitDrop) * qty  // ВИНАГОРОДА
+                  const payout = (unitSale - unitDrop) * qty
                   return (
                     <tr key={r.id} className="border-t border-slate-100 align-top">
                       <td className="py-3 pr-3 whitespace-nowrap">{fmtDate(r.created_at)}</td>
@@ -127,7 +147,7 @@ export default function Dashboard() {
                           <div className="w-14 h-14 rounded-lg overflow-hidden bg-slate-100">
                             {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
                           </div>
-                          <div>
+                          <div className="min-w-[180px]">
                             <div className="font-medium">{p.name || '—'}</div>
                             <div className="text-muted text-sm">
                               К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
@@ -136,13 +156,7 @@ export default function Dashboard() {
                         </div>
                       </td>
 
-                      <td className="py-3 pr-3">
-                        {r.ttn ? (
-                          <div className="font-medium">{r.ttn}</div>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
-                      </td>
+                      <td className="py-3 pr-3">{r.ttn ? <span className="font-medium">{r.ttn}</span> : <span className="text-muted">—</span>}</td>
 
                       <td className="py-3 pr-3">
                         <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
@@ -150,9 +164,7 @@ export default function Dashboard() {
                         </span>
                       </td>
 
-                      <td className="py-3 pr-0 text-right font-semibold">
-                        {payout.toFixed(2)} ₴
-                      </td>
+                      <td className="py-3 pr-0 text-right font-semibold">{payout.toFixed(2)} ₴</td>
                     </tr>
                   )
                 })}
@@ -162,7 +174,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {rows.length > 0 && (
+      {filtered.length > 0 && (
         <div className="mt-4 text-right">
           <div className="text-[18px]">
             Разом до виплати:&nbsp;
