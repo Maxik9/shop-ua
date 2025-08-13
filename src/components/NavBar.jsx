@@ -1,51 +1,64 @@
 // src/components/NavBar.jsx
 import { Link } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { useEffect, useMemo, useState } from 'react'
 import { useCart } from '../context/CartContext'
 
 export default function NavBar() {
   const [user, setUser] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
 
-  // беремо товари з контексту і рахуємо сумарну кількість штук
+  // Беремо товари з контексту і рахуємо загальну кількість штук
   const { items = [] } = useCart()
   const cartQty = useMemo(
-    () => items.reduce((sum, it) => sum + Number(it?.qty || 0), 0),
+    () => items.reduce((s, it) => s + Number(it?.qty || 0), 0),
     [items]
   )
 
   useEffect(() => {
-    let unsub = () => {}
-    async function init() {
-      const { data } = await supabase.auth.getSession()
-      const u = data.session?.user ?? null
-      setUser(u)
-      if (u) {
-        const { data: ok } = await supabase.rpc('is_admin', { u: u.id })
-        setIsAdmin(Boolean(ok))
-      } else {
+    let unsubscribe = () => {}
+
+    async function check(u) {
+      try {
+        if (!u) {
+          setIsAdmin(false)
+          return
+        }
+        const { data, error } = await supabase.rpc('is_admin', { u: u.id })
+        if (error) {
+          console.warn('is_admin RPC error:', error)
+          setIsAdmin(false)
+          return
+        }
+        setIsAdmin(Boolean(data))
+      } catch (e) {
+        console.warn('is_admin RPC failed:', e)
         setIsAdmin(false)
       }
     }
+
+    async function init() {
+      const { data } = await supabase.auth.getSession()
+      const u = data?.session?.user ?? null
+      setUser(u)
+      await check(u)
+    }
     init()
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
       const u = session?.user ?? null
       setUser(u)
-      if (u) {
-        const { data: ok } = await supabase.rpc('is_admin', { u: u.id })
-        setIsAdmin(Boolean(ok))
-      } else {
-        setIsAdmin(false)
-      }
+      check(u)
     })
-    unsub = () => sub?.subscription?.unsubscribe?.()
-    return () => unsub()
+    unsubscribe = () => sub?.subscription?.unsubscribe?.()
+
+    return () => unsubscribe()
   }, [])
 
   async function logout() {
-    await supabase.auth.signOut()
+    try {
+      await supabase.auth.signOut()
+    } catch {}
   }
 
   return (
@@ -62,7 +75,6 @@ export default function NavBar() {
             </Link>
           )}
 
-          {/* Кошик з бейджем кількості штук */}
           {user && (
             <Link to="/cart" className="hover:text-indigo-600 relative">
               <span>Кошик</span>
@@ -79,11 +91,11 @@ export default function NavBar() {
             </Link>
           )}
 
-          {isAdmin && <Link to="/admin" className="hover:text-indigo-600">Адмін</Link>}
           {isAdmin && (
-            <Link to="/admin/orders" className="hover:text-indigo-600">
-              Замовлення (адмін)
-            </Link>
+            <>
+              <Link to="/admin" className="hover:text-indigo-600">Адмін</Link>
+              <Link to="/admin/orders" className="hover:text-indigo-600">Замовлення (адмін)</Link>
+            </>
           )}
 
           <Link to="/about" className="hover:text-indigo-600">Про нас</Link>
