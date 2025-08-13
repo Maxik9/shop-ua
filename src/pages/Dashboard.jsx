@@ -46,7 +46,7 @@ export default function Dashboard() {
           .from('orders')
           .select(`
             id, order_no, created_at, status, qty, my_price, ttn, payment_method,
-            recipient_name, recipient_phone,
+            recipient_name, recipient_phone, settlement, nova_poshta_branch,
             product:products ( id, name, image_url, price_dropship )
           `)
           .eq('user_id', uid)
@@ -63,7 +63,7 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Групування по order_no (одна картка на замовлення)
+  // Групування по order_no
   const grouped = useMemo(() => {
     const acc = new Map()
     for (const r of rows) {
@@ -76,7 +76,6 @@ export default function Dashboard() {
         const first = lines[0]
         const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
         const payment = first?.payment_method || 'cod'
-        // якщо оплата по реквізитам — до виплати 0
         const payout = payment === 'bank'
           ? 0
           : lines.reduce((s, r) => {
@@ -90,9 +89,11 @@ export default function Dashboard() {
           created_at: first?.created_at,
           recipient_name: first?.recipient_name,
           recipient_phone: first?.recipient_phone,
+          settlement: first?.settlement || '',
+          branch: first?.nova_poshta_branch || '',
           ttn: first?.ttn || '',
           status,
-          payment,  // ⟵ збережемо спосіб оплати
+          payment,
           payout,
           lines
         }
@@ -171,12 +172,24 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Клієнт */}
-              <div className="mb-3 text-sm">
-                <span className="text-muted">Клієнт (одержувач):&nbsp;</span>
-                <span className="font-medium">{order.recipient_name || '—'}</span>
-                <span className="text-muted">&nbsp;•&nbsp;</span>
-                <span className="font-medium">{order.recipient_phone || '—'}</span>
+              {/* Клієнт + Місто/відділення */}
+              <div className="mb-3 text-sm flex flex-wrap gap-x-3 gap-y-1">
+                <div>
+                  <span className="text-muted">Одержувач:&nbsp;</span>
+                  <span className="font-medium">{order.recipient_name || '—'}</span>
+                  <span className="text-muted">&nbsp;•&nbsp;</span>
+                  <span className="font-medium">{order.recipient_phone || '—'}</span>
+                </div>
+                <div className="text-muted">•</div>
+                <div>
+                  <span className="text-muted">Нас. пункт:&nbsp;</span>
+                  <span className="font-medium">{order.settlement || '—'}</span>
+                </div>
+                <div className="text-muted">•</div>
+                <div>
+                  <span className="text-muted">Відділення:&nbsp;</span>
+                  <span className="font-medium">{order.branch || '—'}</span>
+                </div>
               </div>
 
               {/* Товари */}
