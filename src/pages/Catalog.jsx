@@ -123,11 +123,11 @@ export default function Catalog() {
         <div className="text-slate-500">Нічого не знайдено.</div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-        {products.map((p) => (
-          <ProductCard key={p.id} product={p} />
-        ))}
-      </div>
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+  {products.map((p) => (
+    <ProductCard key={p.id} product={p} />
+  ))}
+</div>
     </div>
   )
 }
