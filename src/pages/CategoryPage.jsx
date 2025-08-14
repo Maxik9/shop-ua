@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import ProductCard from '../components/ProductCard'
+import { stockFirst } from '../utils/sorters'
 
 export default function CategoryPage() {
   const { id } = useParams()
@@ -17,7 +18,10 @@ export default function CategoryPage() {
       const [{ data: c }, { data: childs }, { data: prods }] = await Promise.all([
         supabase.from('categories').select('*').eq('id', id).single(),
         supabase.from('categories').select('*').eq('parent_id', id).order('sort_order').order('name'),
-        supabase.from('products').select('*').eq('category_id', id).order('created_at', { ascending:false })
+        // ГОЛОВНЕ: спочатку in_stock DESC, далі created_at DESC
+        supabase.from('products').select('*').eq('category_id', id)
+          .order('in_stock', { ascending: false })
+          .order('created_at', { ascending: false })
       ])
       setCat(c || null)
       setChildren(childs || [])
@@ -26,8 +30,8 @@ export default function CategoryPage() {
     })()
   }, [id])
 
-  // тепер без локального пошуку
-  const filtered = products
+  // Додаткова клієнтська підстраховка — в наявності зверху
+  const filtered = useMemo(() => products.slice().sort(stockFirst), [products])
 
   return (
     <div className="container-page my-6">
@@ -43,7 +47,6 @@ export default function CategoryPage() {
             {children.map(child => (
               <Link key={child.id} to={`/category/${child.id}`} className="card overflow-hidden">
                 <div className="aspect-square bg-white flex items-center justify-center">
-                  {/* Твій компонент превʼю або img, залишаю як є */}
                   <span className="text-sm font-semibold px-2 text-center">{child.name}</span>
                 </div>
               </Link>
