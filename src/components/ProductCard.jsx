@@ -1,6 +1,7 @@
 // src/components/ProductCard.jsx
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
+import AvailabilityBadge from './AvailabilityBadge'
 
 export default function ProductCard({ product }) {
   const { addItem } = useCart()
@@ -45,6 +46,8 @@ export default function ProductCard({ product }) {
           {product.name}
         </Link>
 
+        <div className="mt-1"><AvailabilityBadge in_stock={!!product.in_stock} /></div>
+
         {/* ціна */}
         <div className="mt-2 flex items-baseline justify-between">
           <span className="text-muted text-sm">Дроп-ціна</span>
@@ -57,7 +60,8 @@ export default function ProductCard({ product }) {
         <button
           type="button"
           onClick={add}
-          className="btn-primary mt-3 w-full h-10"
+          className={`btn-primary mt-3 w-full h-10 ${product.in_stock ? "" : "opacity-50 pointer-events-none"}`}
+          disabled={!product.in_stock}
         >
           До кошика
         </button>
