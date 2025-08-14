@@ -104,48 +104,74 @@ export default function Cart() {
                 const basePrice = Number(it.product?.price_dropship ?? 0)
                 const curPrice  = Number(it.myPrice ?? basePrice)
                 const qty       = Number(it.qty || 1)
+                const dec = () => setQty(pid, Math.max(1, qty - 1))
+                const inc = () => setQty(pid, qty + 1)
                 return (
-                  <div key={pid} className="rounded-xl border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                    {/* фото — приховано на мобілці */}
-                    <div className="hidden sm:block w-20 h-20 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
-                      {it.product?.image_url && (
-                        <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />
-                      )}
-                    </div>
+                  <div key={pid} className="rounded-xl border border-slate-100 p-3 sm:p-4 flex flex-col gap-3">
+                    <div className="flex items-start gap-3">
+                      {/* фото — приховано на мобілці */}
+                      <div className="hidden sm:block w-20 h-20 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
+                        {it.product?.image_url && (
+                          <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />
+                        )}
+                      </div>
 
-                    <div className="flex-1 min-w-0">
-                      {/* назва як посилання на картку товару */}
-                      <Link
-                        to={`/product/${pid}`}
-                        className="font-medium hover:text-indigo-600 truncate block"
-                        title={it.product?.name}
+                      <div className="flex-1 min-w-0">
+                        {/* назва як посилання на картку товару */}
+                        <Link
+                          to={`/product/${pid}`}
+                          className="font-medium hover:text-indigo-600 truncate block"
+                          title={it.product?.name}
+                        >
+                          {it.product?.name || 'Товар'}
+                        </Link>
+                        <div className="text-muted text-sm">Дроп-ціна: {basePrice.toFixed(2)} ₴</div>
+                      </div>
+
+                      {/* Кнопка видалення */}
+                      <button
+                        className="btn-ghost w-9 h-9 rounded-lg"
+                        onClick={() => removeItem(pid)}
+                        title="Прибрати"
+                        aria-label="Прибрати"
                       >
-                        {it.product?.name || 'Товар'}
-                      </Link>
-                      <div className="text-muted text-sm">Дроп-ціна: {basePrice.toFixed(2)} ₴</div>
+                        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                          <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                      </button>
                     </div>
 
-                    <div className="flex items-center gap-2 sm:w-[140px]">
-                      <span className="text-sm text-muted">Кількість</span>
-                      <input
-                        type="number" min={1}
-                        className="input input-xs w-[80px] text-center"
-                        value={qty}
-                        onChange={e => setQty(pid, Math.max(1, Number(e.target.value || 1)))}
-                      />
-                    </div>
+                    {/* Контроли кількості та ціни */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Кількість */}
+                      <div>
+                        <div className="text-sm text-muted mb-1">Кількість</div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={dec} className="btn-outline w-9 h-9 rounded-lg" type="button">−</button>
+                          <input
+                            type="number" min={1}
+                            className="input input-xs w-[90px] text-center"
+                            value={qty}
+                            onChange={e => setQty(pid, Math.max(1, Number(e.target.value || 1)))}
+                          />
+                          <button onClick={inc} className="btn-outline w-9 h-9 rounded-lg" type="button">+</button>
+                        </div>
+                      </div>
 
-                    <div className="flex items-center gap-2 sm:w-[220px]">
-                      <span className="text-sm text-muted">Ціна продажу</span>
-                      <input
-                        type="number" min={0}
-                        className="input input-xs w-[120px] text-right"
-                        value={curPrice}
-                        onChange={e => setMyPrice(pid, Number(e.target.value || 0))}
-                      />
+                      {/* Ціна продажу */}
+                      <div>
+                        <div className="text-sm text-muted mb-1">Ціна продажу</div>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">₴</span>
+                          <input
+                            type="number" min={0}
+                            className="input input-xs pl-7 text-right"
+                            value={curPrice}
+                            onChange={e => setMyPrice(pid, Number(e.target.value || 0))}
+                          />
+                        </div>
+                      </div>
                     </div>
-
-                    <button className="btn-ghost self-end sm:self-auto" onClick={() => removeItem(pid)} title="Прибрати">×</button>
                   </div>
                 )
               })}
