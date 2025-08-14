@@ -1,6 +1,27 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+
+
+// --- Простий HTML-редактор (візуально / HTML / перегляд) ---
+function HtmlEditor({ value, onChange }) {
+  const [tab, setTab] = useState('visual')
+  const visualRef = useRef(null)
+  useEffect(() => { if (tab==='visual' && visualRef.current) visualRef.current.innerHTML = value || '' }, [tab, value])
+  function onVisualInput(e){ onChange(e.currentTarget.innerHTML) }
+  return (
+    <div>
+      <div className="flex gap-2 mb-2 text-sm">
+        <button type="button" className={\`btn-outline \${tab==='visual'?'!bg-indigo-50 !border-indigo-200':''}\`} onClick={()=>setTab('visual')}>Візуально</button>
+        <button type="button" className={\`btn-outline \${tab==='html'?'!bg-indigo-50 !border-indigo-200':''}\`} onClick={()=>setTab('html')}>HTML</button>
+        <button type="button" className={\`btn-outline \${tab==='preview'?'!bg-indigo-50 !border-indigo-200':''}\`} onClick={()=>setTab('preview')}>Перегляд</button>
+      </div>
+      {tab==='visual' && (<div ref={visualRef} className="input min-h-[180px]" contentEditable onInput={onVisualInput} suppressContentEditableWarning />)}
+      {tab==='html' && (<textarea className="input min-h-[180px] font-mono text-sm" value={value||''} onChange={e=>onChange(e.target.value)} />)}
+      {tab==='preview' && (<div className="prose max-w-none p-3 rounded-xl bg-slate-50 border border-slate-200" dangerouslySetInnerHTML={{__html: value || ''}} />)}
+    </div>
+  )
+}
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([])
@@ -11,7 +32,7 @@ export default function AdminProducts() {
 
   const emptyForm = {
     id: null, sku:'', name:'', description:'', category_id:null,
-    price_dropship:'', image_url:'', gallery_json:[], in_stock:true
+    price_dropship:'', image_url:'', gallery_json:[]
   }
   const [form, setForm] = useState(emptyForm)
     const [galleryFiles, setGalleryFiles] = useState([])
@@ -47,15 +68,15 @@ export default function AdminProducts() {
   }, [products, q, catFilter])
 
   function startCreate() {
-    setForm(emptyForm); setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setForm(emptyForm); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function startEdit(p) {
     setForm({
-      id: p.id, sku: p.sku || '', name: p.name || '', description: p.description || '', in_stock: (p.in_stock ?? true),
+      id: p.id, sku: p.sku || '', name: p.name || '', description: p.description || '',
       category_id: p.category_id || null, price_dropship: p.price_dropship ?? '',
       image_url: p.image_url || '', gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : []
     })
-    setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function uploadToStorage(file) {
@@ -81,11 +102,11 @@ export default function AdminProducts() {
         gallery = [...gallery, ...uploaded]
       }
       if (gallery.length > 0) image_url = gallery[0]
+      if (gallery.length > 0) image_url = gallery[0]
 
       const payload = {
         sku: (form.sku||'').trim(),
         name: form.name,
-        in_stock: !!form.in_stock,
         description: form.description || null,
         category_id: form.category_id || null,
         price_dropship: Number(form.price_dropship),
@@ -97,7 +118,7 @@ export default function AdminProducts() {
       else await supabase.from('products').insert(payload)
 
       await loadAll()
-      setForm(emptyForm); setMainFile(null); setGalleryFiles([])
+      setForm(emptyForm); setGalleryFiles([])
       alert('Збережено ✅')
     } catch (e) { console.error(e); alert(e.message || 'Помилка') }
     finally { setLoading(false) }
@@ -141,7 +162,6 @@ export default function AdminProducts() {
           <div className="flex items-center justify-between gap-3 mb-2">
             <h1 className="h1">Адмін • Товари</h1>
             <div className="flex gap-2">
-              <Link className="btn-outline" to="/admin/import">Імпорт XLSX</Link>
               <button className="btn-outline" onClick={startCreate}>Новий товар</button>
             </div>
           </div>
@@ -169,29 +189,13 @@ export default function AdminProducts() {
                        onChange={e=>setForm({...form, price_dropship:e.target.value})} placeholder="0" />
               </Field>
 
-              <Field label="Наявність">
-                <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox" className="accent-indigo-600" checked={!!form.in_stock} onChange={e=>setForm(f=>({...f, in_stock: e.target.checked}))} />
-                  <span>{form.in_stock ? "В наявності" : "Немає в наявності"}</span>
-                </label>
-              </Field>
-
               <Field label="Опис">
-                <textarea className="input" rows={6} value={form.description}
-                          onChange={e=>setForm({...form, description:e.target.value})} placeholder="Опис товару"></textarea>
-              </Field>
+              <HtmlEditor value={form.description} onChange={val=>setForm(f=>({...f, description: val}))} />
+            </Field>
             </div>
 
             <div className="space-y-4">
-              <Field label="Головне фото">
-  {(form.gallery_json?.[0] || form.image_url) ? (
-    <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
-      <img src={form.gallery_json?.[0] || form.image_url} alt="" className="w-full h-full object-contain" />
-    </div>
-  ) : (
-    <div className="text-sm text-muted">Головне фото береться з <b>першого</b> зображення у галереї нижче.</div>
-  )}
-</Field>
+              <Field label="Головне фото">  {(form.gallery_json?.[0] || form.image_url) ? (    <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">      <img src={form.gallery_json?.[0] || form.image_url} alt="" className="w-full h-full object-contain" />    </div>  ) : (    <div className="text-sm text-muted">Головне фото береться з <b>першого</b> зображення у галереї нижче.</div>  )}</Field>
 
               <Field label="Галерея (можна кілька)">
                 {Array.isArray(form.gallery_json) && form.gallery_json.length > 0 && (
@@ -216,7 +220,7 @@ export default function AdminProducts() {
 
               <div className="flex gap-2">
                 <button className="btn-primary" onClick={save} disabled={loading}>{form.id ? 'Зберегти' : 'Створити'}</button>
-                {form.id && <button className="btn-outline" onClick={()=>{ setForm(emptyForm); setMainFile(null); setGalleryFiles([]) }}>Скасувати</button>}
+                {form.id && <button className="btn-outline" onClick={()=>{ setForm(emptyForm); setGalleryFiles([]) }}>Скасувати</button>}
               </div>
             </div>
           </div>
