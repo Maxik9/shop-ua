@@ -260,8 +260,8 @@ export default function AdminOrders() {
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
                         {p.image_url && <img src={p.image_url} className="w-full h-full object-cover" alt="" />}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <Link to={`/product/${p.id}`} className="font-medium truncate hover:text-indigo-600">{p.name || '—'}</Link>
+                      <div className="flex-1 min-w-0 max-w-full">
+                        <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 break-words whitespace-normal leading-snug">{p.name || '—'}</Link>
                         <div className="text-muted text-sm">К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴</div>
                       </div>
                       <div className="text-right">
