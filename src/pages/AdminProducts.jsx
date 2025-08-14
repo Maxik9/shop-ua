@@ -1,308 +1,246 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
+function uid() {
+  return Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+}
 
-// --- HTML редактор (візуально/HTML/перегляд) ---
-function HtmlEditor({ value, onChange }) {
-  const [tab, setTab] = useState('visual');
-  const visualRef = useRef(null);
-  useEffect(() => {
-    if (tab === 'visual' && visualRef.current) visualRef.current.innerHTML = value || '';
-  }, [tab, value]);
-  function onVisualInput(e){ onChange(e.currentTarget.innerHTML); }
-  return (
-    <div>
-      <div className="flex gap-2 mb-2 text-sm">
-        <button type="button" className={`btn-outline ${tab==='visual'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('visual')}>Візуально</button>
-        <button type="button" className={`btn-outline ${tab==='html'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('html')}>HTML</button>
-        <button type="button" className={`btn-outline ${tab==='preview'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('preview')}>Перегляд</button>
-      </div>
-      {tab==='visual' && (
-        <div ref={visualRef} className="input min-h-[180px]" contentEditable onInput={onVisualInput} suppressContentEditableWarning />
-      )}
-      {tab==='html' && (
-        <textarea className="input min-h-[180px] font-mono text-sm" value={value || ''} onChange={e=>onChange(e.target.value)} />
-      )}
-      {tab==='preview' && (
-        <div className="prose max-w-none p-3 rounded-xl bg-slate-50 border border-slate-200" dangerouslySetInnerHTML={{__html: value || ''}} />
-      )}
-    </div>
-  );
+async function uploadToBucket(file, folder = 'products') {
+  const bucket = 'product-images'
+  const ext = file.name.split('.').pop() || 'jpg'
+  const path = `${folder}/${uid()}.${ext}`
+  const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, { upsert: false })
+  if (upErr) throw upErr
+  const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path)
+  return pub.publicUrl
 }
 
 export default function AdminProducts() {
-  const [products, setProducts] = useState([])
-  const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [q, setQ] = useState('')
-  const [catFilter, setCatFilter] = useState('all')
-
-  const emptyForm = {
-    id: null, sku:'', name:'', description:'', category_id:null,
-    price_dropship:'', image_url:'', gallery_json:[]
-  }
-  const [form, setForm] = useState(emptyForm)
+  // форма
+  const [id, setId] = useState(null)
+  const [sku, setSku] = useState('')
+  const [name, setName] = useState('')
+  const [price, setPrice] = useState('')
+  const [desc, setDesc] = useState('')
+  const [inStock, setInStock] = useState(true)
   const [mainFile, setMainFile] = useState(null)
   const [galleryFiles, setGalleryFiles] = useState([])
 
-  useEffect(() => { loadAll() }, [])
-  async function loadAll() {
+  // список
+  const [items, setItems] = useState([])
+  const [q, setQ] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    if (!s) return items
+    return items.filter(p =>
+      (p.name || '').toLowerCase().includes(s) ||
+      (p.sku || '').toLowerCase().includes(s)
+    )
+  }, [q, items])
+
+  async function load() {
     setLoading(true)
-    const [{ data: cats }, { data: prods }] = await Promise.all([
-      supabase.from('categories').select('*').order('name'),
-      supabase.from('products').select('*').order('created_at', { ascending: false }),
-    ])
-    setCategories(cats || [])
-    setProducts(prods || [])
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, sku, name, price_dropship, image_url, in_stock')
+      .order('created_at', { ascending: false })
+      .limit(500)
+    if (!error) setItems(data || [])
     setLoading(false)
   }
+  useEffect(() => { load() }, [])
 
-  // гарна назва з урахуванням батька
-  const catLabel = (id) => {
-    const c = categories.find(x=>x.id===id)
-    if (!c) return '—'
-    const p = c.parent_id ? categories.find(x=>x.id===c.parent_id) : null
-    return p ? `${p.name} / ${c.name}` : c.name
-  }
-
-  const list = useMemo(() => {
-    let arr = products
-    if (catFilter !== 'all') arr = arr.filter(p => p.category_id === catFilter)
-    if (q.trim()) {
-      const t = q.toLowerCase()
-      arr = arr.filter(p => (p.name || '').toLowerCase().includes(t) || (p.sku || '').toLowerCase().includes(t))
-    }
-    return arr
-  }, [products, q, catFilter])
-
-  function startCreate() {
-    setForm(emptyForm); setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-  function startEdit(p) {
-    setForm({
-      id: p.id, sku: p.sku || '', name: p.name || '', description: p.description || '',
-      category_id: p.category_id || null, price_dropship: p.price_dropship ?? '',
-      image_url: p.image_url || '', gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : []
-    })
-    setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  async function uploadToStorage(file) {
-    if (!file) return null
-    const ext = file.name.split('.').pop()
-    const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
-    const { error } = await supabase.storage.from('product-images').upload(path, file, { upsert: false })
-    if (error) throw error
-    const { data } = supabase.storage.from('product-images').getPublicUrl(path)
-    return data.publicUrl
+  function resetForm() {
+    setId(null); setSku(''); setName(''); setPrice(''); setDesc('')
+    setInStock(true); setMainFile(null); setGalleryFiles([])
   }
 
   async function save() {
-    if (!form.name || !form.price_dropship) { alert('Назва та дроп-ціна — обов’язкові'); return }
-    setLoading(true)
+    if (!sku.trim() || !name.trim()) {
+      setMsg('Вкажіть SKU і назву'); return
+    }
+    setSaving(true); setMsg('')
     try {
-      let image_url = form.image_url
-      if (mainFile) image_url = await uploadToStorage(mainFile)
+      // 1) завантаження фото (якщо задані)
+      let mainUrl = null
+      const galleryUrls = []
 
-      let gallery = Array.isArray(form.gallery_json) ? [...form.gallery_json] : []
-      if (galleryFiles.length) {
-        const uploaded = []
-        for (const f of galleryFiles) uploaded.push(await uploadToStorage(f))
-        gallery = [...gallery, ...uploaded]
-      }
-      if (gallery.length > 0) image_url = gallery[0]
-
-      const payload = {
-        sku: (form.sku||'').trim(),
-        name: form.name,
-        description: form.description || null,
-        category_id: form.category_id || null,
-        price_dropship: Number(form.price_dropship),
-        image_url: image_url || null,
-        gallery_json: gallery
+      if (mainFile) {
+        mainUrl = await uploadToBucket(mainFile)
       }
 
-      if (form.id) await supabase.from('products').update(payload).eq('id', form.id)
-      else await supabase.from('products').insert(payload)
+      for (const f of galleryFiles) {
+        const url = await uploadToBucket(f)
+        galleryUrls.push(url)
+      }
 
-      await loadAll()
-      setForm(emptyForm); setMainFile(null); setGalleryFiles([])
-      alert('Збережено ✅')
-    } catch (e) { console.error(e); alert(e.message || 'Помилка') }
-    finally { setLoading(false) }
+      // якщо головне не вибрано — беремо перше з галереї
+      if (!mainUrl && galleryUrls.length) {
+        mainUrl = galleryUrls[0]
+      }
+
+      // 2) підготовка запису
+      const row = {
+        sku: sku.trim(),
+        name: name.trim(),
+        price_dropship: Number(price) || 0,
+        description: desc || '',
+        in_stock: !!inStock,
+      }
+      if (mainUrl) row.image_url = mainUrl
+      if (galleryUrls.length) row.gallery_json = galleryUrls
+
+      let result
+      if (id) {
+        result = await supabase.from('products').update(row).eq('id', id).select().maybeSingle()
+      } else {
+        result = await supabase.from('products').insert(row).select().maybeSingle()
+      }
+      if (result.error) throw result.error
+
+      setMsg('Збережено')
+      resetForm()
+      load()
+    } catch (e) {
+      setMsg(e.message || 'Помилка збереження')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  async function del(id) {
-    if (!window.confirm('Видалити товар?')) return
-    await supabase.from('products').delete().eq('id', id)
-    setProducts(products.filter(p => p.id !== id))
+  async function edit(p) {
+    setId(p.id)
+    setSku(p.sku || '')
+    setName(p.name || '')
+    setPrice(String(p.price_dropship || ''))
+    // підтягуємо опис і галерею для редагування
+    const { data } = await supabase.from('products')
+      .select('description, gallery_json, in_stock')
+      .eq('id', p.id).single()
+    setDesc(data?.description || '')
+    setInStock(!!data?.in_stock)
+    setMainFile(null); setGalleryFiles([])
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  function removeGalleryImage(idx) {
-    setForm(f => ({ ...f, gallery_json: f.gallery_json.filter((_, i) => i !== idx) }))
-  }
-  function moveGallery(idx, dir) {
-    setForm(f => {
-      const arr = [...(f.gallery_json || [])]
-      const j = idx + dir
-      if (j < 0 || j >= arr.length) return f
-      ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
-      return { ...f, gallery_json: arr }
-    })
+  async function toggleStock(p) {
+    const { error } = await supabase.from('products')
+      .update({ in_stock: !p.in_stock }).eq('id', p.id)
+    if (!error) {
+      setItems(prev => prev.map(x => x.id === p.id ? { ...x, in_stock: !x.in_stock } : x))
+    }
   }
 
-  // список категорій з відображенням "parent / child"
-  const catOptions = useMemo(() => {
-    const map = new Map(categories.map(c => [c.id, c]))
-    return categories
-      .slice()
-      .sort((a,b)=>a.name.localeCompare(b.name))
-      .map(c => {
-        const p = c.parent_id ? map.get(c.parent_id) : null
-        return { id: c.id, label: p ? `${p.name} / ${c.name}` : c.name }
-      })
-  }, [categories])
+  async function remove(p) {
+    if (!confirm(`Видалити "${p.name}"?`)) return
+    const { error } = await supabase.from('products').delete().eq('id', p.id)
+    if (error) {
+      alert('Не вдалось видалити (можливо, є замовлення на цей товар). Я вимкну наявність.')
+      await supabase.from('products').update({ in_stock: false }).eq('id', p.id)
+      setItems(prev => prev.map(x => x.id === p.id ? { ...x, in_stock: false } : x))
+    } else {
+      setItems(prev => prev.filter(x => x.id !== p.id))
+    }
+  }
 
   return (
-    <div className="container-page my-6">
+    <div className="container-page py-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="h1">Адмін • Товари</h1>
+
+        <div className="flex gap-2">
+          <Link to="/admin/import" className="btn-outline">Імпорт XLSX</Link>
+          <button className="btn-primary" onClick={resetForm}>Новий товар</button>
+        </div>
+      </div>
+
+      {/* Форма */}
+      <div className="card mb-6">
+        <div className="card-body">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Артикул (SKU)</label>
+              <input className="input" value={sku} onChange={e=>setSku(e.target.value)} />
+
+              <label className="label mt-3">Назва</label>
+              <input className="input" value={name} onChange={e=>setName(e.target.value)} />
+
+              <label className="label mt-3">Дроп-ціна (грн)</label>
+              <input className="input" type="number" value={price} onChange={e=>setPrice(e.target.value)} />
+
+              <label className="label mt-3">Наявність</label>
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={inStock} onChange={e=>setInStock(e.target.checked)} />
+                <span>{inStock ? 'В наявності' : 'Немає'}</span>
+              </label>
+            </div>
+
+            <div>
+              <label className="label">Головне фото (опц.)</label>
+              <input className="input" type="file" accept="image/*"
+                     onChange={e=>setMainFile(e.target.files?.[0] || null)} />
+
+              <label className="label mt-3">Галерея (можна кілька)</label>
+              <input className="input" type="file" multiple accept="image/*"
+                     onChange={e=>setGalleryFiles(Array.from(e.target.files || []))} />
+            </div>
+          </div>
+
+          <label className="label mt-3">Опис (HTML дозволено)</label>
+          <textarea className="input" rows={6} value={desc} onChange={e=>setDesc(e.target.value)} />
+
+          <div className="mt-4 flex gap-2">
+            <button className="btn-primary" onClick={save} disabled={saving}>
+              {saving ? 'Зберігаю…' : (id ? 'Зберегти зміни' : 'Створити')}
+            </button>
+            {msg && <div className="text-sm text-muted self-center">{msg}</div>}
+          </div>
+        </div>
+      </div>
+
+      {/* Пошук */}
+      <div className="mb-3">
+        <input className="input" placeholder="Пошук по назві або SKU…" value={q} onChange={e=>setQ(e.target.value)} />
+      </div>
+
+      {/* Список */}
       <div className="card">
         <div className="card-body">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <h1 className="h1">Адмін • Товари</h1>
-            <div className="flex gap-2">
-              <button className="btn-outline" onClick={startCreate}>Новий товар</button>
-            </div>
-          </div>
-
-          {/* Форма товару */}
-          <div className="grid md:grid-cols-2 gap-4">
+          {loading ? 'Завантаження…' : (
             <div className="space-y-3">
-              <Field label="Артикул (SKU)">
-                <input className="input" value={form.sku} onChange={e=>setForm(f=>({...f, sku:e.target.value}))} placeholder="ABC-001" />
-              </Field>
-
-              <Field label="Назва">
-                <input className="input" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Назва товару" />
-              </Field>
-
-              <Field label="Категорія / підкатегорія">
-                <select className="input" value={form.category_id ?? ''} onChange={e=>setForm({...form, category_id: e.target.value || null})}>
-                  <option value="">— без категорії —</option>
-                  {catOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                </select>
-              </Field>
-
-              <Field label="Дроп-ціна (грн)">
-                <input className="input" type="number" value={form.price_dropship}
-                       onChange={e=>setForm({...form, price_dropship:e.target.value})} placeholder="0" />
-              </Field>
-
-              <Field label="Опис">
-              <HtmlEditor value={form.description} onChange={val=>setForm(f=>({...f, description: val}))} />
-            </Field>
-            </div>
-
-            <div className="space-y-4">
-              <Field label="Головне фото">
-                {form.image_url && (
-                  <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
-                    <img src={form.image_url} alt="" className="w-full h-full object-contain" />
+              {filtered.map(p => (
+                <div key={p.id} className="flex items-center gap-3 border rounded-xl p-3">
+                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-slate-100 flex-none">
+                    {p.image_url ? <img src={p.image_url} alt="" className="w-full h-full object-cover" /> : null}
                   </div>
-                )}
-                <input className="input" type="file" multiple accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
-              </Field>
-
-              <Field label="Галерея (можна кілька)">
-                {Array.isArray(form.gallery_json) && form.gallery_json.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {form.gallery_json.map((src, idx) => (
-                      <div key={idx} className="relative" draggable onDragStart={(e)=>e.dataTransfer.setData('text/plain', String(idx))} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault(); const from=Number(e.dataTransfer.getData('text/plain')); if(!Number.isNaN(from)&&from!==idx){ setForm(f=>{ const arr=[...(f.gallery_json||[])]; const [m]=arr.splice(from,1); arr.splice(idx,0,m); return {...f, gallery_json:arr};}); } }}>
-                        <div className="w-[96px] h-[96px] overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
-                          <img src={src} alt="" className="w-full h-full object-cover" />
-                        </div>
-                        <div className="absolute -top-2 -right-2 flex gap-1">
-                          <button className="btn-ghost input-xs" onClick={()=>moveGallery(idx,-1)}>↑</button>
-                          <button className="btn-ghost input-xs" onClick={()=>moveGallery(idx,+1)}>↓</button>
-                          <button className="btn-outline input-xs" onClick={()=>removeGalleryImage(idx)}>×</button>
-                        </div>
-                        {idx===0 && <div className="absolute left-1 top-1 bg-black/60 text-white text-[11px] px-1 rounded">Головне</div>}
-                      </div>
-                    ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{p.name}</div>
+                    <div className="text-sm text-muted truncate">SKU: {p.sku}</div>
                   </div>
-                )}
-                <input className="input" type="file" multiple accept="image/*" multiple onChange={e=>setGalleryFiles(Array.from(e.target.files || []))} />
-              </Field>
+                  <div className="w-24 text-right text-sm">{(p.price_dropship ?? 0).toFixed(2)} ₴</div>
 
-              <div className="flex gap-2">
-                <button className="btn-primary" onClick={save} disabled={loading}>{form.id ? 'Зберегти' : 'Створити'}</button>
-                {form.id && <button className="btn-outline" onClick={()=>{ setForm(emptyForm); setMainFile(null); setGalleryFiles([]) }}>Скасувати</button>}
-              </div>
+                  <button
+                    className={`px-3 py-1 rounded-full text-xs border ${p.in_stock ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}
+                    onClick={() => toggleStock(p)}
+                    title="Перемкнути наявність"
+                  >
+                    {p.in_stock ? 'В наявності' : 'Немає'}
+                  </button>
+
+                  <button className="btn-outline" onClick={() => edit(p)}>Редагувати</button>
+                  <button className="btn-ghost" onClick={() => remove(p)}>Видалити</button>
+                </div>
+              ))}
+              {filtered.length === 0 && <div className="text-muted">Нічого не знайдено.</div>}
             </div>
-          </div>
+          )}
         </div>
       </div>
-
-      {/* Фільтри + список товарів */}
-      <div className="card mt-6">
-        <div className="card-body">
-          <div className="flex flex-wrap items-center gap-3 mb-3">
-            <input className="input input-xs w-[260px]" placeholder="Пошук по назві…" value={q} onChange={e=>setQ(e.target.value)} />
-            <select className="input input-xs w-[260px]" value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
-              <option value="all">Усі категорії</option>
-              {catOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-            <div className="ml-auto text-muted text-sm">{list.length} шт.</div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-[14px]">
-              <thead className="text-left text-slate-500">
-                <tr>
-                  <th className="py-2 pr-3">Товар</th>
-                  <th className="py-2 pr-3">Категорія</th>
-                  <th className="py-2 pr-3">Дроп-ціна</th>
-                  <th className="py-2 pr-3 w-[160px]">Дії</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map(p => (
-                  <tr key={p.id} className="border-t border-slate-100">
-                    <td className="py-3 pr-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-slate-100">
-                          {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
-                        </div>
-                        <div className="font-medium">{p.name}</div>
-                      </div>
-                    </td>
-                    <td className="py-3 pr-3">{catLabel(p.category_id)}</td>
-                    <td className="py-3 pr-3">{Number(p.price_dropship).toFixed(2)} ₴</td>
-                    <td className="py-3 pr-3">
-                      <div className="flex gap-2">
-                        <button className="btn-outline input-xs" onClick={()=>startEdit(p)}>Редагувати</button>
-                        <button className="btn-ghost input-xs" onClick={()=>del(p.id)}>Видалити</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {list.length===0 && (
-                  <tr><td colSpan={4} className="py-6 text-center text-muted">Порожньо</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Field({ label, children }) {
-  return (
-    <div>
-      <div className="text-sm text-muted mb-1">{label}</div>
-      {children}
     </div>
   )
 }
