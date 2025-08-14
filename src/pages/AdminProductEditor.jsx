@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
@@ -48,7 +47,7 @@ export default function AdminProductEditor() {
 
   // categories
   const [categories, setCategories] = useState([])
-  const [categoryId, setCategoryId] = useState('')
+  const [categoryId, setCategoryId] = useState('') // keep as string (UUID or text)
 
   // desc toggle
   const [descMode, setDescMode] = useState('html')
@@ -64,8 +63,8 @@ export default function AdminProductEditor() {
 
   useEffect(() => {
     ;(async () => {
-      const { data } = await supabase.from('categories').select('id,name').order('name')
-      setCategories(data || [])
+      const { data, error } = await supabase.from('categories').select('id,name').order('name')
+      if (!error) setCategories(data || [])
     })()
   }, [])
 
@@ -76,9 +75,9 @@ export default function AdminProductEditor() {
       const { data, error } = await supabase.from('products').select('*').eq('id', paramId).single()
       if (error) setErr(error.message || 'Помилка завантаження')
       if (data) {
-        setId(data.id); setSku(data.sku || ''); setName(data.name || '')
-        setPrice(String(data.price_dropship ?? data.price ?? ''))
-        setInStock(!!data.in_stock); setCategoryId(String(data.category_id ?? ''))
+        setId(data.id); setSku(data.sku || ''); setName(data.name || ''
+        ); setPrice(String(data.price_dropship ?? data.price ?? ''))
+        setInStock(!!data.in_stock); setCategoryId(data.category_id ? String(data.category_id) : '')
         setDescHtml(data.description || ''); setDescText(stripHtmlToText(data.description || ''))
         const arr = []; if (data.image_url) arr.push(data.image_url)
         const rest = Array.isArray(data.gallery_json) ? data.gallery_json : (data.gallery_json ? [data.gallery_json] : [])
@@ -89,6 +88,25 @@ export default function AdminProductEditor() {
     })()
   }, [paramId, isNew])
 
+  function onDrop(i){
+    const from = dragIndex.current
+    if (from === -1 || from === i) return
+    setGallery(prev => { const arr = prev.slice(); const [m]=arr.splice(from,1); arr.splice(i,0,m); return arr })
+    dragIndex.current = -1
+  }
+
+  async function onUploadMain(e){
+    const f = e.target.files?.[0]; if (!f) return
+    try{ const url = await uploadToBucket(f); setGallery(prev => [url, ...prev]) } finally { if (mainInputRef.current) mainInputRef.current.value='' }
+  }
+  async function onUploadGallery(e){
+    const files = Array.from(e.target.files || []); if (!files.length) return
+    try{
+      const ups=[]; for (const f of files) ups.push(await uploadToBucket(f))
+      setGallery(prev => [...prev, ...ups])
+    } finally { if (galleryInputRef.current) galleryInputRef.current.value='' }
+  }
+
   async function handleSave(){
     try{
       setSaving(true); setMsg(''); setErr('')
@@ -98,7 +116,7 @@ export default function AdminProductEditor() {
         name: name.trim(),
         price_dropship: Number(price) || 0,
         in_stock: !!inStock,
-        // ключова правка: НЕ кастимо до Number — у вас UUID/текст
+        // ВАЖЛИВО: category_id як РЯДОК (UUID/текст), без Number()
         category_id: categoryId ? categoryId : null,
         description: descToSave || '',
         image_url: gallery[0] || null,
@@ -125,7 +143,100 @@ export default function AdminProductEditor() {
       </div>
 
       {err && <div className="mb-3 text-red-600 text-sm">Помилка: {err}</div>}
-      {/* Уся інша верстка з v4 без змін */}
+      {msg && <div className="mb-3 text-green-700 text-sm">{msg}</div>}
+
+      {loading ? <div className="text-muted">Завантаження…</div> : (
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="card">
+            <div className="card-body">
+              <label className="label">Назва позиції</label>
+              <input className="input" value={name} onChange={e=>setName(e.target.value)} />
+
+              <div className="grid grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className="label">Код/Артикул (SKU)</label>
+                  <input className="input" value={sku} onChange={e=>setSku(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Категорія</label>
+                  <select className="input" value={categoryId} onChange={e=>setCategoryId(e.target.value)}>
+                    <option value="">— не вибрано —</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className="label">Ціна (грн)</label>
+                  <input className="input" type="number" value={price} onChange={e=>setPrice(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Наявність</label>
+                  <select className="input" value={inStock ? '1' : '0'} onChange={e=>setInStock(e.target.value === '1')}>
+                    <option value="1">В наявності</option>
+                    <option value="0">Немає</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <label className="label m-0">Опис</label>
+                  <div className="inline-flex rounded border overflow-hidden">
+                    <button className={`px-3 py-1 ${descMode==='html'?'bg-slate-200':''}`} onClick={()=>setDescMode('html')}>HTML</button>
+                    <button className={`px-3 py-1 ${descMode==='text'?'bg-slate-200':''}`} onClick={()=>setDescMode('text')}>Звичайний</button>
+                  </div>
+                </div>
+                {descMode==='html'
+                  ? <textarea className="input min-h-[220px] font-mono" placeholder="HTML опис…" value={descHtml} onChange={e=>setDescHtml(e.target.value)} />
+                  : <textarea className="input min-h-[220px]" placeholder="Звичайний текст…" value={descText} onChange={e=>setDescText(e.target.value)} />
+                }
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-body">
+              <label className="label">Головне фото</label>
+              <div className="flex items-center gap-3">
+                <div className="w-28 h-28 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
+                  {gallery[0] ? <img src={gallery[0]} alt="main" className="object-cover w-full h-full" /> : <span className="text-xs text-slate-400">нема</span>}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <input ref={mainInputRef} type="file" accept="image/*" onChange={onUploadMain} />
+                  <input className="input" placeholder="Або встав URL…" onKeyDown={e=>{ if(e.key==='Enter'){ const u=e.currentTarget.value.trim(); if(u) setGallery(prev=>[u,...prev]); e.currentTarget.value=''; } }} />
+                </div>
+              </div>
+
+              <label className="label mt-4">Галерея (перетягни, перший — головний)</label>
+              <div className="grid grid-cols-5 gap-2">
+                {gallery.map((u, i) => (
+                  <div key={i} className="relative group cursor-move" draggable onDragStart={()=>{ dragIndex.current=i }} onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop(i)}>
+                    <img src={u} alt={String(i)} className="w-full h-20 object-cover rounded" />
+                    {i===0 && <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1 rounded">ГОЛОВНЕ</div>}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1">
+                      <button className="btn-ghost text-white text-xs" onClick={(e)=>{ e.preventDefault(); setGallery(prev=>prev.filter((_,idx)=>idx!==i)) }}>×</button>
+                    </div>
+                  </div>
+                ))}
+                <div className="border rounded flex items-center justify-center h-20">
+                  <button className="btn-ghost" onClick={()=>galleryInputRef.current?.click()}>+ Додати</button>
+                </div>
+              </div>
+              <input ref={galleryInputRef} type="file" multiple accept="image/*" className="hidden" onChange={onUploadGallery} />
+              <button className="btn-ghost mt-2" onClick={()=>{ const u=prompt('Вставте URL'); if(u&&u.trim()) setGallery(prev=>[...prev,u.trim()]) }}>+ Додати по URL</button>
+
+              <div className="mt-6">
+                <div className="text-sm text-slate-600 mb-2">Превʼю опису (як на сайті)</div>
+                <div className="card"><div className="card-body overflow-x-hidden">
+                  <HtmlContent html={descMode==='html' ? descHtml : textToHtml(descText)} />
+                </div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
