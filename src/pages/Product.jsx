@@ -4,10 +4,6 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
-/**
- * Картка товару з лайтбоксом, захистом від "порожнього екрану" та fallback-пошуком за SKU.
- * Для сумісності з supabase-js v1: тільки .single() (без .maybeSingle()).
- */
 export default function Product() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -18,55 +14,38 @@ export default function Product() {
   const [error, setError] = useState('')
   const [imgIndex, setImgIndex] = useState(0)
 
-  // swipe/scroll refs (card)
+  // refs для свайпу (картка) та автоскролу мініатюр
   const startXRef = useRef(null)
   const thumbsRef = useRef(null)
 
-  // Lightbox state
+  // Лайтбокс
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const dragRef = useRef({ dragging: false, sx: 0, sy: 0, px: 0, py: 0 })
-  const lbSwipeStartRef = useRef(null) // для свайпу у лайтбоксі, коли zoom=1
+  const lbSwipeStartRef = useRef(null)
 
   useEffect(() => {
     let mounted = true
     async function load() {
       setLoading(true); setError(''); setProduct(null)
       try {
-        // 1) Пошук за id (через .single())
-        let { data, error } = await supabase
+        // ТІЛЬКИ .single() — стабільно для supabase-js v1
+        const { data, error } = await supabase
           .from('products')
           .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
           .eq('id', id)
           .single()
 
-        // Якщо не знайшли по id — пробуємо по sku
-        if ((!data || error) && (!error || (error && String(error.message || '').toLowerCase().includes('no rows')))) {
-          const bySku = await supabase
-            .from('products')
-            .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
-            .eq('sku', id)
-            .single()
-          data = bySku.data
-          error = bySku.error
-        }
-
-        if (error && !String(error.message || '').toLowerCase().includes('no rows')) {
-          setError(error.message || 'Помилка завантаження')
-        }
-
-        if (data) {
+        if (error) setError(error.message || 'Помилка завантаження')
+        if (data && mounted) {
           const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
           const photos = [data.image_url, ...g].filter(Boolean)
           const uniq = Array.from(new Set(photos))
-          if (mounted) {
-            setProduct({ ...data, _photos: uniq })
-            setImgIndex(0)
-          }
-        } else if (!error) {
-          setError('Товар не знайдено')
+          setProduct({ ...data, _photos: uniq })
+          setImgIndex(0)
         }
+        if (!data && !error) setError('Товар не знайдено')
       } catch (e) {
         setError(e.message || 'Непередбачена помилка')
       } finally {
@@ -93,9 +72,8 @@ export default function Product() {
     else if (right > viewR) c.scrollTo({ left: right - c.clientWidth + 8, behavior: 'smooth' })
   }, [imgIndex])
 
-  // === РЕНДЕР СТАНІВ ==========================================================
+  // --- РЕНДЕР СТАНІВ ---
   if (loading) return <div className="container-page py-6">Завантаження…</div>
-
   if (error) {
     return (
       <div className="container-page py-6">
@@ -104,7 +82,6 @@ export default function Product() {
       </div>
     )
   }
-
   if (!product) {
     return (
       <div className="container-page py-6">
@@ -114,7 +91,7 @@ export default function Product() {
     )
   }
 
-  // === ЛОГІКА СТОРІНКИ =======================================================
+  // --- ЛОГІКА ---
   const canBuy = !!product.in_stock
   const addOne = () => addItem?.(product, 1, product.price_dropship)
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
@@ -127,7 +104,7 @@ export default function Product() {
   const prevImg = () => goTo(imgIndex - 1)
   const nextImg = () => goTo(imgIndex + 1)
 
-  // swipe у картці (поза лайтбоксом)
+  // свайп у картці
   const onTouchStart = (e) => { startXRef.current = e.touches?.[0]?.clientX ?? null }
   const onTouchEnd = (e) => {
     const sx = startXRef.current
@@ -139,6 +116,7 @@ export default function Product() {
     startXRef.current = null
   }
 
+  // Лайтбокс керування
   function openLightbox(){ setLightboxOpen(true); setZoom(1); setPan({ x: 0, y: 0 }) }
   function zoomIn(){ setZoom(z => Math.min(4, +(z + 0.25).toFixed(2))) }
   function zoomOut(){ setZoom(z => Math.max(1, +(z - 0.25).toFixed(2))) }
@@ -150,7 +128,7 @@ export default function Product() {
     setZoom(z => Math.min(4, Math.max(1, +(z + delta).toFixed(2))))
   }
 
-  // Панорамування дозволяємо тільки при zoom > 1
+  // панорамування тільки при zoom > 1
   function onDragStart(e){
     if (zoom <= 1) return
     e.preventDefault()
@@ -164,12 +142,9 @@ export default function Product() {
   }
   function onDragEnd(){ dragRef.current.dragging = false }
 
-  // Touch drag/pan у лайтбоксі
+  // touch-drag у лайтбоксі + свайп між фото при zoom=1
   function onTouchDragStart(e){
-    if (zoom <= 1) { // коли не зумлено — готуємо свайп
-      lbSwipeStartRef.current = e.touches?.[0]?.clientX ?? null
-      return
-    }
+    if (zoom <= 1) { lbSwipeStartRef.current = e.touches?.[0]?.clientX ?? null; return }
     if (e.touches.length !== 1) return
     dragRef.current = { dragging: true, sx: e.touches[0].clientX, sy: e.touches[0].clientY, px: pan.x, py: pan.y }
   }
@@ -194,7 +169,7 @@ export default function Product() {
     lbSwipeStartRef.current = null
   }
 
-  // Закриття lightbox по Esc + стрілки
+  // esc + стрілки в лайтбоксі
   useEffect(() => {
     function onKey(e){
       if (!lightboxOpen) return
@@ -208,7 +183,7 @@ export default function Product() {
 
   return (
     <div className="container-page py-4 sm:py-6 overflow-x-hidden">
-      {/* Кнопка назад */}
+      {/* Назад */}
       <div className="mb-3 sm:mb-4">
         <Link to="/" className="inline-flex items-center gap-2 text-sm btn-outline">
           <span>←</span> До каталогу
@@ -314,16 +289,16 @@ export default function Product() {
             <button
               type="button"
               onClick={addOne}
-              className={`btn-outline w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
-              disabled={!product.in_stock}
+              className={`btn-outline w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!canBuy}
             >
               Додати в кошик
             </button>
             <button
               type="button"
               onClick={buyNow}
-              className={`btn-primary w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
-              disabled={!product.in_stock}
+              className={`btn-primary w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!canBuy}
             >
               Замовити
             </button>
@@ -341,7 +316,7 @@ export default function Product() {
         </div>
       </div>
 
-      {/* LIGHTBOX */}
+      {/* ЛАЙТБОКС */}
       {lightboxOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center"
@@ -361,7 +336,6 @@ export default function Product() {
             ×
           </button>
 
-          {/* Prev / Next */}
           {photos.length > 1 && (
             <>
               <button
@@ -377,14 +351,12 @@ export default function Product() {
             </>
           )}
 
-          {/* Toolbar */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-30">
             <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomOut} disabled={zoom<=1}>−</button>
             <button className="btn-outline !bg-white/90 !text-slate-900" onClick={resetZoom}>100%</button>
             <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomIn}>+</button>
           </div>
 
-          {/* Image area */}
           <div
             className="relative max-w-[95vw] max-h-[85vh] overflow-hidden cursor-grab active:cursor-grabbing z-10"
             onMouseDown={onDragStart}
