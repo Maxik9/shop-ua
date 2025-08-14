@@ -54,27 +54,59 @@ export default function Product() {
   const addOne = () => addItem?.(product, 1, product.price_dropship)
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
 
+  function prevImg(){
+    setImgIndex(i => (i <= 0 ? photos.length - 1 : i - 1))
+  }
+  function nextImg(){
+    setImgIndex(i => (i >= photos.length - 1 ? 0 : i + 1))
+  }
+
   return (
-    <div className="container-page py-6 overflow-x-hidden">
+    <div className="container-page py-4 sm:py-6 overflow-x-hidden">
+      {/* Top bar with Back */}
+      <div className="mb-3 sm:mb-4">
+        <Link to="/" className="inline-flex items-center gap-2 text-sm btn-outline">
+          <span>←</span> До каталогу
+        </Link>
+      </div>
+
       {/* Верхній блок: фото + коротка інформація */}
       <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
         {/* ФОТО */}
         <div className="card w-full">
           <div className="card-body">
-            <div className="w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
+            <div className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
               {photos[imgIndex] ? (
                 <img src={photos[imgIndex]} alt={product.name} className="w-full h-full object-contain" />
               ) : (
                 <div className="text-muted">Немає фото</div>
               )}
+
+              {/* Prev/Next controls */}
+              {photos.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Попереднє фото"
+                    onClick={prevImg}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
+                  >‹</button>
+                  <button
+                    type="button"
+                    aria-label="Наступне фото"
+                    onClick={nextImg}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
+                  >›</button>
+                </>
+              )}
             </div>
 
             {photos.length > 1 && (
-              <div className="mt-3 -mx-2 px-2 flex gap-3 overflow-x-auto pb-1">
+              <div className="-mx-3 px-3 mt-3 flex gap-3 overflow-x-auto pb-1">
                 {photos.map((src, i) => (
                   <button
                     key={i}
-                    className={`w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border flex-none ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
+                    className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
                     onClick={() => setImgIndex(i)}
                     title={`Фото ${i+1}`}
                   >
@@ -132,10 +164,6 @@ export default function Product() {
             >
               Замовити
             </button>
-          </div>
-
-          <div className="mt-6 sm:mt-8">
-            <Link to="/" className="btn-outline">← До каталогу</Link>
           </div>
         </div>
       </div>
