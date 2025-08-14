@@ -4,8 +4,6 @@ import { supabase } from './supabaseClient'
 import NavBar from './components/NavBar'
 import Search from './pages/Search'
 import AdminImport from './pages/AdminImport'
-import AdminProducts from './pages/AdminProducts'
-import AdminProductEditor from './pages/AdminProductEditor'
 
 // публичные страницы
 import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
@@ -23,6 +21,7 @@ import Dashboard      from './pages/Dashboard'
 import Admin          from './pages/Admin'            // дашборд
 import AdminOrders    from './pages/AdminOrders'
 import AdminProducts  from './pages/AdminProducts'
+import AdminProductEditor from './pages/AdminProductEditor'
 import AdminCategories from './pages/AdminCategories'
 
 function PrivateRoute({ children }) {
