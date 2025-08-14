@@ -11,6 +11,13 @@ export default function AdminProducts() {
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
 
+  // швидкий доступ name по id
+  const catById = useMemo(() => {
+    const m = {}
+    for (const c of categories) m[String(c.id)] = c.name
+    return m
+  }, [categories])
+
   useEffect(() => {
     ;(async () => {
       const { data } = await supabase.from('categories').select('id,name').order('name')
@@ -104,15 +111,23 @@ export default function AdminProducts() {
             <div className="divide-y">
               {filtered.map(p => (
                 <div key={p.id} className="py-3 grid grid-cols-[64px_1fr_9rem_10rem_7rem] items-center gap-3">
+                  {/* Фото */}
                   <div className="w-16 h-16 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
                     {p.image_url ? <img src={p.image_url} alt={p.name} className="object-cover w-full h-full" /> : <span className="text-xs text-slate-400">без фото</span>}
                   </div>
 
+                  {/* Назва + SKU + Категорія */}
                   <div className="min-w-0">
                     <div className="font-medium truncate">{p.name || '— без назви —'}</div>
-                    <div className="text-xs text-slate-600 mt-0.5 truncate"><span className="opacity-70">SKU:</span> <span className="font-mono">{p.sku || '—'}</span></div>
+                    <div className="text-xs text-slate-600 mt-0.5 truncate">
+                      <span className="opacity-70">SKU:</span> <span className="font-mono">{p.sku || '—'}</span>
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5 truncate">
+                      <span className="opacity-70">Категорія:</span> {catById[String(p.category_id)] || '—'}
+                    </div>
                   </div>
 
+                  {/* Ціна інлайн */}
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
@@ -125,6 +140,7 @@ export default function AdminProducts() {
                     <span>₴</span>
                   </div>
 
+                  {/* Наявність інлайн */}
                   <label className="inline-flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -134,6 +150,7 @@ export default function AdminProducts() {
                     <span className="text-sm">{p.in_stock ? 'в наявності' : 'немає'}</span>
                   </label>
 
+                  {/* Дії */}
                   <div className="justify-self-end">
                     <select className="input w-28" defaultValue="" onChange={async e => {
                       const val = e.target.value
