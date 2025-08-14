@@ -5,9 +5,8 @@ import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
 /**
- * Картка товару з перегортанням фото, стрічкою мініатюр та ЛАЙТБОКСОМ (збільшенням)
- * - Клік по головному фото відкриває повноекранний переглядач
- * - У переглядачі: зум +/- , перетягування, стрілки вліво/вправо, Esc — закрити
+ * Картка товару з лайтом та фіксом: у лайтбоксі тепер працює свайп вліво/вправо (коли zoom = 1),
+ * а стрілки завжди видимі (вищий z-index). Панорамування вмикається тільки при zoom > 1.
  */
 export default function Product() {
   const { id } = useParams()
@@ -18,7 +17,7 @@ export default function Product() {
   const [loading, setLoading] = useState(true)
   const [imgIndex, setImgIndex] = useState(0)
 
-  // swipe/scroll refs
+  // swipe/scroll refs (card)
   const startXRef = useRef(null)
   const thumbsRef = useRef(null)
 
@@ -27,6 +26,7 @@ export default function Product() {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const dragRef = useRef({ dragging: false, sx: 0, sy: 0, px: 0, py: 0 })
+  const lbSwipeStartRef = useRef(null) // для свайпу у лайтбоксі, коли zoom=1
 
   useEffect(() => {
     let mounted = true
@@ -68,18 +68,6 @@ export default function Product() {
     else if (right > viewR) c.scrollTo({ left: right - c.clientWidth + 8, behavior: 'smooth' })
   }, [imgIndex])
 
-  // Закриття lightbox по Esc
-  useEffect(() => {
-    function onKey(e){
-      if (!lightboxOpen) return
-      if (e.key === 'Escape') setLightboxOpen(false)
-      else if (e.key === 'ArrowLeft') goTo(imgIndex - 1)
-      else if (e.key === 'ArrowRight') goTo(imgIndex + 1)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [lightboxOpen, imgIndex, photos.length])
-
   if (loading) return <div className="container-page py-6">Завантаження…</div>
 
   if (!product) {
@@ -103,6 +91,7 @@ export default function Product() {
   const prevImg = () => goTo(imgIndex - 1)
   const nextImg = () => goTo(imgIndex + 1)
 
+  // swipe у картці (поза лайтбоксом)
   const onTouchStart = (e) => { startXRef.current = e.touches?.[0]?.clientX ?? null }
   const onTouchEnd = (e) => {
     const sx = startXRef.current
@@ -132,7 +121,9 @@ export default function Product() {
     })
   }
 
+  // Панорамування дозволяємо тільки при zoom > 1
   function onDragStart(e){
+    if (zoom <= 1) return
     e.preventDefault()
     dragRef.current = { dragging: true, sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y }
   }
@@ -144,22 +135,51 @@ export default function Product() {
   }
   function onDragEnd(){ dragRef.current.dragging = false }
 
-  // Touch drag in lightbox
+  // Touch drag/pan
   function onTouchDragStart(e){
+    if (zoom <= 1) { // коли не зумлено — готуємо свайп
+      lbSwipeStartRef.current = e.touches?.[0]?.clientX ?? null
+      return
+    }
     if (e.touches.length !== 1) return
     dragRef.current = { dragging: true, sx: e.touches[0].clientX, sy: e.touches[0].clientY, px: pan.x, py: pan.y }
   }
   function onTouchDragMove(e){
+    if (zoom <= 1) return
     if (!dragRef.current.dragging || e.touches.length !== 1) return
     const dx = e.touches[0].clientX - dragRef.current.sx
     const dy = e.touches[0].clientY - dragRef.current.sy
     setPan({ x: dragRef.current.px + dx, y: dragRef.current.py + dy })
   }
-  function onTouchDragEnd(){ dragRef.current.dragging = false }
+  function onTouchDragEnd(e){
+    if (zoom <= 1) {
+      const sx = lbSwipeStartRef.current
+      if (sx != null) {
+        const ex = e.changedTouches?.[0]?.clientX ?? sx
+        const dx = ex - sx
+        if (dx > 50) prevImg()
+        else if (dx < -50) nextImg()
+      }
+    }
+    dragRef.current.dragging = false
+    lbSwipeStartRef.current = null
+  }
+
+  // Закриття lightbox по Esc + стрілки
+  useEffect(() => {
+    function onKey(e){
+      if (!lightboxOpen) return
+      if (e.key === 'Escape') setLightboxOpen(false)
+      else if (e.key === 'ArrowLeft') prevImg()
+      else if (e.key === 'ArrowRight') nextImg()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightboxOpen, imgIndex, photos.length])
 
   return (
     <div className="container-page py-4 sm:py-6 overflow-x-hidden">
-      {/* Кнопка назад у верхній частині */}
+      {/* Кнопка назад */}
       <div className="mb-3 sm:mb-4">
         <Link to="/" className="inline-flex items-center gap-2 text-sm btn-outline">
           <span>←</span> До каталогу
@@ -193,19 +213,19 @@ export default function Product() {
                     type="button"
                     aria-label="Попереднє фото"
                     onClick={prevImg}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
                   >‹</button>
                   <button
                     type="button"
                     aria-label="Наступне фото"
                     onClick={nextImg}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
                   >›</button>
                 </>
               )}
             </div>
 
-            {/* Мініатюри — внутрішній скрол, не впливають на ширину сторінки */}
+            {/* Мініатюри */}
             {photos.length > 1 && (
               <div className="mt-3 w-full max-w-full">
                 <div
@@ -302,9 +322,10 @@ export default function Product() {
           onMouseLeave={onDragEnd}
           onTouchMove={onTouchDragMove}
           onTouchEnd={onTouchDragEnd}
+          onTouchStart={onTouchDragStart}
         >
           <button
-            className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 hover:bg-white text-slate-800 text-xl leading-none flex items-center justify-center"
+            className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 hover:bg-white text-slate-800 text-xl leading-none flex items-center justify-center z-30"
             onClick={() => setLightboxOpen(false)}
             aria-label="Закрити"
           >
@@ -316,19 +337,19 @@ export default function Product() {
             <>
               <button
                 onClick={prevImg}
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl z-30"
                 aria-label="Попереднє фото"
               >‹</button>
               <button
                 onClick={nextImg}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl"
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl z-30"
                 aria-label="Наступне фото"
               >›</button>
             </>
           )}
 
           {/* Toolbar */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-30">
             <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomOut} disabled={zoom<=1}>−</button>
             <button className="btn-outline !bg-white/90 !text-slate-900" onClick={resetZoom}>100%</button>
             <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomIn}>+</button>
@@ -336,9 +357,8 @@ export default function Product() {
 
           {/* Image area */}
           <div
-            className="relative max-w-[95vw] max-h-[85vh] overflow-hidden cursor-grab active:cursor-grabbing"
+            className="relative max-w-[95vw] max-h-[85vh] overflow-hidden cursor-grab active:cursor-grabbing z-10"
             onMouseDown={onDragStart}
-            onTouchStart={onTouchDragStart}
           >
             <img
               src={photos[imgIndex]}
