@@ -1,27 +1,6 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-
-
-// --- Простий HTML-редактор (візуально / HTML / перегляд) ---
-function HtmlEditor({ value, onChange }) {
-  const [tab, setTab] = useState('visual')
-  const visualRef = useRef(null)
-  useEffect(() => { if (tab==='visual' && visualRef.current) visualRef.current.innerHTML = value || '' }, [tab, value])
-  function onVisualInput(e){ onChange(e.currentTarget.innerHTML) }
-  return (
-    <div>
-      <div className="flex gap-2 mb-2 text-sm">
-        <button type="button" className={\`btn-outline \${tab==='visual'?'!bg-indigo-50 !border-indigo-200':''}\`} onClick={()=>setTab('visual')}>Візуально</button>
-        <button type="button" className={\`btn-outline \${tab==='html'?'!bg-indigo-50 !border-indigo-200':''}\`} onClick={()=>setTab('html')}>HTML</button>
-        <button type="button" className={\`btn-outline \${tab==='preview'?'!bg-indigo-50 !border-indigo-200':''}\`} onClick={()=>setTab('preview')}>Перегляд</button>
-      </div>
-      {tab==='visual' && (<div ref={visualRef} className="input min-h-[180px]" contentEditable onInput={onVisualInput} suppressContentEditableWarning />)}
-      {tab==='html' && (<textarea className="input min-h-[180px] font-mono text-sm" value={value||''} onChange={e=>onChange(e.target.value)} />)}
-      {tab==='preview' && (<div className="prose max-w-none p-3 rounded-xl bg-slate-50 border border-slate-200" dangerouslySetInnerHTML={{__html: value || ''}} />)}
-    </div>
-  )
-}
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([])
@@ -35,7 +14,8 @@ export default function AdminProducts() {
     price_dropship:'', image_url:'', gallery_json:[]
   }
   const [form, setForm] = useState(emptyForm)
-    const [galleryFiles, setGalleryFiles] = useState([])
+  const [mainFile, setMainFile] = useState(null)
+  const [galleryFiles, setGalleryFiles] = useState([])
 
   useEffect(() => { loadAll() }, [])
   async function loadAll() {
@@ -68,7 +48,7 @@ export default function AdminProducts() {
   }, [products, q, catFilter])
 
   function startCreate() {
-    setForm(emptyForm); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setForm(emptyForm); setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function startEdit(p) {
     setForm({
@@ -76,7 +56,7 @@ export default function AdminProducts() {
       category_id: p.category_id || null, price_dropship: p.price_dropship ?? '',
       image_url: p.image_url || '', gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : []
     })
-    setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setMainFile(null); setGalleryFiles([]); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function uploadToStorage(file) {
@@ -93,7 +73,8 @@ export default function AdminProducts() {
     if (!form.name || !form.price_dropship) { alert('Назва та дроп-ціна — обов’язкові'); return }
     setLoading(true)
     try {
-      let image_url = form.gallery_json?.[0] || form.image_url
+      let image_url = form.image_url
+      if (mainFile) image_url = await uploadToStorage(mainFile)
 
       let gallery = Array.isArray(form.gallery_json) ? [...form.gallery_json] : []
       if (galleryFiles.length) {
@@ -101,7 +82,6 @@ export default function AdminProducts() {
         for (const f of galleryFiles) uploaded.push(await uploadToStorage(f))
         gallery = [...gallery, ...uploaded]
       }
-      if (gallery.length > 0) image_url = gallery[0]
       if (gallery.length > 0) image_url = gallery[0]
 
       const payload = {
@@ -118,7 +98,7 @@ export default function AdminProducts() {
       else await supabase.from('products').insert(payload)
 
       await loadAll()
-      setForm(emptyForm); setGalleryFiles([])
+      setForm(emptyForm); setMainFile(null); setGalleryFiles([])
       alert('Збережено ✅')
     } catch (e) { console.error(e); alert(e.message || 'Помилка') }
     finally { setLoading(false) }
@@ -190,12 +170,20 @@ export default function AdminProducts() {
               </Field>
 
               <Field label="Опис">
-              <HtmlEditor value={form.description} onChange={val=>setForm(f=>({...f, description: val}))} />
-            </Field>
+                <textarea className="input" rows={6} value={form.description}
+                          onChange={e=>setForm({...form, description:e.target.value})} placeholder="Опис товару"></textarea>
+              </Field>
             </div>
 
             <div className="space-y-4">
-              <Field label="Головне фото">  {(form.gallery_json?.[0] || form.image_url) ? (    <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">      <img src={form.gallery_json?.[0] || form.image_url} alt="" className="w-full h-full object-contain" />    </div>  ) : (    <div className="text-sm text-muted">Головне фото береться з <b>першого</b> зображення у галереї нижче.</div>  )}</Field>
+              <Field label="Головне фото">
+                {form.image_url && (
+                  <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
+                    <img src={form.image_url} alt="" className="w-full h-full object-contain" />
+                  </div>
+                )}
+                <input className="input" type="file" multiple accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
+              </Field>
 
               <Field label="Галерея (можна кілька)">
                 {Array.isArray(form.gallery_json) && form.gallery_json.length > 0 && (
@@ -215,12 +203,12 @@ export default function AdminProducts() {
                     ))}
                   </div>
                 )}
-                <input className="input" type="file" multiple accept="image/*" onChange={e=>setGalleryFiles(Array.from(e.target.files||[]))} />
+                <input className="input" type="file" multiple accept="image/*" multiple onChange={e=>setGalleryFiles(Array.from(e.target.files || []))} />
               </Field>
 
               <div className="flex gap-2">
                 <button className="btn-primary" onClick={save} disabled={loading}>{form.id ? 'Зберегти' : 'Створити'}</button>
-                {form.id && <button className="btn-outline" onClick={()=>{ setForm(emptyForm); setGalleryFiles([]) }}>Скасувати</button>}
+                {form.id && <button className="btn-outline" onClick={()=>{ setForm(emptyForm); setMainFile(null); setGalleryFiles([]) }}>Скасувати</button>}
               </div>
             </div>
           </div>
