@@ -115,7 +115,7 @@ export default function Cart() {
                       )}
                     </div>
 
-                    <div className="flex-1 min-w-0 pr-14 sm:pr-0">
+                    <div className="flex-1 min-w-0 pr-12 sm:pr-0">
                       {/* назва як посилання на картку товару */}
                       <Link
                         to={`/product/${pid}`}
@@ -149,13 +149,26 @@ export default function Cart() {
                     </div>
 
                     {/* Кнопка видалення: як було, + абсолют для мобілки */}
+                    {/* delete (mobile) */}
                     <button
-                      className="absolute top-3 right-3 w-9 h-9 rounded-full bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 active:scale-95 transition"
+                      className="sm:hidden absolute top-3 right-3 w-6 h-6 rounded-full border border-red-500 text-red-500 hover:bg-red-50 active:scale-95 transition"
                       onClick={() => removeItem(pid)}
                       title="Прибрати"
                       aria-label="Прибрати"
                     >
-                      <svg viewBox="0 0 24 24" className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <svg viewBox="0 0 24 24" className="w-4 h-4 mx-auto" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+
+                    {/* delete (desktop) */}
+                    <button
+                      className="hidden sm:inline-flex items-center justify-center w-7 h-7 rounded-full border border-red-500 text-red-500 hover:bg-red-50"
+                      onClick={() => removeItem(pid)}
+                      title="Прибрати"
+                      aria-label="Прибрати"
+                    >
+                      <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                         <path d="M18 6L6 18M6 6l12 12" />
                       </svg>
                     </button>
