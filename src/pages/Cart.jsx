@@ -115,7 +115,7 @@ export default function Cart() {
                       )}
                     </div>
 
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 pr-14 sm:pr-0">
                       {/* назва як посилання на картку товару */}
                       <Link
                         to={`/product/${pid}`}
@@ -150,12 +150,14 @@ export default function Cart() {
 
                     {/* Кнопка видалення: як було, + абсолют для мобілки */}
                     <button
-                      className="btn-ghost self-end sm:self-auto absolute top-2 right-2 sm:static"
+                      className="absolute top-3 right-3 w-9 h-9 rounded-full bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 active:scale-95 transition"
                       onClick={() => removeItem(pid)}
                       title="Прибрати"
                       aria-label="Прибрати"
                     >
-                      ×
+                      <svg viewBox="0 0 24 24" className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
                     </button>
 
                     {/* Мобілка: гарний степпер + інпут ціни на всю ширину */}
