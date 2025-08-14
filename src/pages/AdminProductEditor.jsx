@@ -1,13 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import HtmlContent from '../components/HtmlContent'
 
-function uid() {
-  return Date.now() + '-' + Math.random().toString(36).slice(2, 8)
-}
-
-async function uploadToBucket(file, folder = 'products') {
+function uid() { return Date.now() + '-' + Math.random().toString(36).slice(2, 8) }
+async function uploadToBucket(file, folder='products') {
   const bucket = 'product-images'
   const ext = file.name.split('.').pop() || 'jpg'
   const path = `${folder}/${uid()}.${ext}`
@@ -41,24 +38,25 @@ export default function AdminProductEditor() {
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
 
-  // form state
+  // form
   const [id, setId] = useState(null)
   const [sku, setSku] = useState('')
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [inStock, setInStock] = useState(true)
 
-  // categories by name
-  const [categories, setCategories] = useState([]) // {id, name}
+  // categories
+  const [categories, setCategories] = useState([])
   const [categoryId, setCategoryId] = useState('')
 
-  // description modes
-  const [descMode, setDescMode] = useState('html') // 'html' | 'text'
+  // desc toggle
+  const [descMode, setDescMode] = useState('html')
   const [descHtml, setDescHtml] = useState('')
   const [descText, setDescText] = useState('')
 
-  // images: first in gallery === main
+  // images (first === main)
   const [gallery, setGallery] = useState([])
+  const dragIndex = useRef(-1)
 
   const mainInputRef = useRef(null)
   const galleryInputRef = useRef(null)
@@ -77,17 +75,12 @@ export default function AdminProductEditor() {
       const { data, error } = await supabase.from('products').select('*').eq('id', paramId).maybeSingle()
       if (error) setErr(error.message || 'Помилка завантаження')
       if (data) {
-        setId(data.id)
-        setSku(data.sku || '')
-        setName(data.name || '')
+        setId(data.id); setSku(data.sku || ''); setName(data.name || '')
         setPrice(String(data.price_dropship ?? data.price ?? ''))
-        setInStock(!!data.in_stock)
-        setCategoryId(String(data.category_id ?? ''))
-        setDescHtml(data.description || '')
-        setDescText(stripHtmlToText(data.description || ''))
-        const arr = []
-        if (data.image_url) arr.push(data.image_url)
-        const rest = Array.isArray(data.gallery_json) ? data.gallery_json : (data.gallery_json ? [].concat(data.gallery_json) : [])
+        setInStock(!!data.in_stock); setCategoryId(String(data.category_id ?? ''))
+        setDescHtml(data.description || ''); setDescText(stripHtmlToText(data.description || ''))
+        const arr = []; if (data.image_url) arr.push(data.image_url)
+        const rest = Array.isArray(data.gallery_json) ? data.gallery_json : (data.gallery_json ? [data.gallery_json] : [])
         for (const u of rest) if (!arr.includes(u)) arr.push(u)
         setGallery(arr)
       }
@@ -95,61 +88,38 @@ export default function AdminProductEditor() {
     })()
   }, [paramId, isNew])
 
-  // DnD handlers for gallery items
-  const dragIndex = useRef(-1)
-  function onDragStart(i) { dragIndex.current = i }
-  function onDragOver(e) { e.preventDefault() }
-  function onDrop(i) {
+  function onDragStart(i){ dragIndex.current = i }
+  function onDrop(i){
     const from = dragIndex.current
     if (from === -1 || from === i) return
-    setGallery(prev => {
-      const arr = prev.slice()
-      const [m] = arr.splice(from,1)
-      arr.splice(i,0,m)
-      return arr
-    })
+    setGallery(prev => { const arr = prev.slice(); const [m]=arr.splice(from,1); arr.splice(i,0,m); return arr })
     dragIndex.current = -1
   }
 
-  async function onUploadMain(e) {
+  async function onUploadMain(e){
     const f = e.target.files?.[0]; if (!f) return
-    try {
-      const url = await uploadToBucket(f)
-      setGallery(prev => [url, ...prev.filter(u => u !== url)])
-    } catch (e) { alert(e.message) }
-    finally { if (mainInputRef.current) mainInputRef.current.value = '' }
+    try{ const url = await uploadToBucket(f); setGallery(prev => [url, ...prev]) } finally { if (mainInputRef.current) mainInputRef.current.value='' }
   }
-  async function onUploadGallery(e) {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    try {
-      const uploaded = []
-      for (const f of files) uploaded.push(await uploadToBucket(f))
-      setGallery(prev => [...prev, ...uploaded])
-    } catch (e) { alert(e.message) }
-    finally { if (galleryInputRef.current) galleryInputRef.current.value = '' }
+  async function onUploadGallery(e){
+    const files = Array.from(e.target.files || []); if (!files.length) return
+    try{
+      const ups=[]; for (const f of files) ups.push(await uploadToBucket(f))
+      setGallery(prev => [...prev, ...ups])
+    } finally { if (galleryInputRef.current) galleryInputRef.current.value='' }
   }
-  function addUrlToGallery() {
-    const u = prompt('Вставте URL зображення')
-    if (u && u.trim()) setGallery(prev => [...prev, u.trim()])
-  }
-  function removeGallery(idx) { setGallery(prev => prev.filter((_, i) => i !== idx)) }
+  function addUrlToGallery(){ const u=prompt('Вставте URL'); if (u && u.trim()) setGallery(prev=>[...prev,u.trim()]) }
+  function removeGallery(i){ setGallery(prev => prev.filter((_,idx)=>idx!==i)) }
 
-  function resetForm() {
-    setId(null); setSku(''); setName(''); setPrice(''); setInStock(true); setCategoryId('')
-    setDescHtml(''); setDescText(''); setDescMode('html')
-    setGallery([]); setMsg(''); setErr('')
-  }
-
-  async function handleSave() {
-    try {
+  async function handleSave(){
+    try{
       setSaving(true); setMsg(''); setErr('')
-      const descToSave = descMode === 'html' ? descHtml : textToHtml(descText)
+      const descToSave = descMode==='html' ? descHtml : textToHtml(descText)
       const row = {
         sku: sku.trim(),
         name: name.trim(),
         price_dropship: Number(price) || 0,
         in_stock: !!inStock,
+        active: !!inStock,
         category_id: categoryId ? Number(categoryId) : null,
         description: descToSave || '',
         image_url: gallery[0] || null,
@@ -161,11 +131,8 @@ export default function AdminProductEditor() {
       if (res.error) throw res.error
       setMsg('Збережено')
       if (isNew && res.data?.id) nav(`/admin/products/${res.data.id}`, { replace: true })
-    } catch (e) {
-      setErr(e.message || 'Помилка збереження')
-    } finally {
-      setSaving(false)
-    }
+    }catch(e){ setErr(e.message || 'Помилка збереження') }
+    finally{ setSaving(false) }
   }
 
   return (
@@ -223,11 +190,10 @@ export default function AdminProductEditor() {
                     <button className={`px-3 py-1 ${descMode==='text'?'bg-slate-200':''}`} onClick={()=>setDescMode('text')}>Звичайний</button>
                   </div>
                 </div>
-                {descMode === 'html' ? (
-                  <textarea className="input min-h-[220px] font-mono" placeholder="HTML опис…" value={descHtml} onChange={e=>setDescHtml(e.target.value)} />
-                ) : (
-                  <textarea className="input min-h-[220px]" placeholder="Звичайний текст…" value={descText} onChange={e=>setDescText(e.target.value)} />
-                )}
+                {descMode==='html'
+                  ? <textarea className="input min-h-[220px] font-mono" placeholder="HTML опис…" value={descHtml} onChange={e=>setDescHtml(e.target.value)} />
+                  : <textarea className="input min-h-[220px]" placeholder="Звичайний текст…" value={descText} onChange={e=>setDescText(e.target.value)} />
+                }
               </div>
             </div>
           </div>
@@ -240,44 +206,34 @@ export default function AdminProductEditor() {
                   {gallery[0] ? <img src={gallery[0]} alt="main" className="object-cover w-full h-full" /> : <span className="text-xs text-slate-400">нема</span>}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <input ref={mainInputRef} type="file" accept="image/*" onChange={onUploadMain} />
-                  <input className="input" placeholder="Або встав URL…" onKeyDown={e => { if (e.key === 'Enter') { const u=e.currentTarget.value.trim(); if(u) setGallery(prev=>[u, ...prev]); e.currentTarget.value=''; } }} />
+                  <input ref={mainInputRef} type="file" accept="image/*" onChange={async (e)=>{ const f=e.target.files?.[0]; if(!f) return; try{ const url=await uploadToBucket(f); setGallery(prev=>[url,...prev]); } finally { if (mainInputRef.current) mainInputRef.current.value='' } }} />
+                  <input className="input" placeholder="Або встав URL…" onKeyDown={e=>{ if(e.key==='Enter'){ const u=e.currentTarget.value.trim(); if(u) setGallery(prev=>[u,...prev]); e.currentTarget.value=''; } }} />
                 </div>
               </div>
 
               <label className="label mt-4">Галерея (перетягни, перший — головний)</label>
               <div className="grid grid-cols-5 gap-2">
                 {gallery.map((u, i) => (
-                  <div
-                    key={i}
-                    className="relative group cursor-move"
-                    draggable
-                    onDragStart={() => onDragStart(i)}
-                    onDragOver={onDragOver}
-                    onDrop={() => onDrop(i)}
-                    title="Потягни, щоб змінити порядок"
-                  >
+                  <div key={i} className="relative group cursor-move" draggable onDragStart={()=>{ dragIndex.current=i }} onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop(i)}>
                     <img src={u} alt={String(i)} className="w-full h-20 object-cover rounded" />
-                    {i === 0 && <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1 rounded">ГОЛОВНЕ</div>}
+                    {i===0 && <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1 rounded">ГОЛОВНЕ</div>}
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1">
-                      <button className="btn-ghost text-white text-xs" onClick={(e)=>{e.preventDefault(); e.stopPropagation(); setGallery(prev=>[...prev.slice(0,i), ...prev.slice(i+1)])}}>×</button>
+                      <button className="btn-ghost text-white text-xs" onClick={(e)=>{ e.preventDefault(); setGallery(prev=>prev.filter((_,idx)=>idx!==i)) }}>×</button>
                     </div>
                   </div>
                 ))}
                 <div className="border rounded flex items-center justify-center h-20">
-                  <button className="btn-ghost" onClick={() => galleryInputRef.current?.click()}>+ Додати</button>
+                  <button className="btn-ghost" onClick={()=>galleryInputRef.current?.click()}>+ Додати</button>
                 </div>
               </div>
-              <input ref={galleryInputRef} type="file" multiple accept="image/*" className="hidden" onChange={onUploadGallery} />
-              <button className="btn-ghost mt-2" onClick={addUrlToGallery}>+ Додати по URL</button>
+              <input ref={galleryInputRef} type="file" multiple accept="image/*" className="hidden" onChange={async (e)=>{ const files=Array.from(e.target.files||[]); if(!files.length) return; const ups=[]; for(const f of files) ups.push(await uploadToBucket(f)); setGallery(prev=>[...prev, ...ups]); }} />
+              <button className="btn-ghost mt-2" onClick={()=>{ const u=prompt('Вставте URL'); if(u&&u.trim()) setGallery(prev=>[...prev,u.trim()]) }}>+ Додати по URL</button>
 
               <div className="mt-6">
                 <div className="text-sm text-slate-600 mb-2">Превʼю опису (як на сайті)</div>
-                <div className="card">
-                  <div className="card-body overflow-x-hidden">
-                    <HtmlContent html={descMode==='html' ? descHtml : textToHtml(descText)} />
-                  </div>
-                </div>
+                <div className="card"><div className="card-body overflow-x-hidden">
+                  <HtmlContent html={descMode==='html' ? descHtml : textToHtml(descText)} />
+                </div></div>
               </div>
             </div>
           </div>
