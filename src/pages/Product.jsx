@@ -4,13 +4,6 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
-/**
- * SAFE (без зуму/лайтбоксу) + мобільні фікси переповнення:
- * - Усі колонки мають min-w-0
- * - Зовнішні контейнери: overflow-x-hidden / max-w-full
- * - Мініатюри: власний горизонтальний скрол, flex-none елементи
- * - Назва/опис: break-words, ніколи не вилазять за екран
- */
 export default function Product() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -21,7 +14,22 @@ export default function Product() {
   const [error, setError] = useState('')
   const [imgIndex, setImgIndex] = useState(0)
 
+  // swipe для великого фото
   const touchStartX = useRef(null)
+
+  // стилі смуги мініатюр — внутрішній скрол, не розтягує сторінку
+  const thumbStripStyle = {
+    display: 'grid',
+    gridAutoFlow: 'column',
+    gridAutoColumns: 'min-content',
+    gap: '12px',
+    overflowX: 'auto',
+    overscrollBehaviorX: 'contain',
+    WebkitOverflowScrolling: 'touch',
+    padding: '0 8px 6px',
+    maxWidth: '100%',
+    contain: 'inline-size',     // не впливає на зовнішній розмір сторінки
+  }
 
   useEffect(() => {
     let alive = true
@@ -34,15 +42,12 @@ export default function Product() {
           .eq('id', id)
           .single()
 
-        if (error) {
-          setError(error.message || 'Помилка завантаження')
-        } else if (data) {
+        if (error) setError(error.message || 'Помилка завантаження')
+        else if (data) {
           const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
           const photos = Array.from(new Set([data.image_url, ...g].filter(Boolean)))
           if (alive) setProduct({ ...data, _photos: photos })
-        } else {
-          setError('Товар не знайдено')
-        }
+        } else setError('Товар не знайдено')
       } catch (e) {
         setError(e.message || 'Непередбачена помилка')
       } finally {
@@ -64,7 +69,7 @@ export default function Product() {
   const prev = () => goTo(imgIndex - 1)
   const next = () => goTo(imgIndex + 1)
 
-  // свайп для великого фото
+  // свайп великого фото
   const onTouchStart = (e) => { touchStartX.current = e.touches?.[0]?.clientX ?? null }
   const onTouchEnd = (e) => {
     const sx = touchStartX.current
@@ -76,7 +81,7 @@ export default function Product() {
     touchStartX.current = null
   }
 
-  // рендер станів
+  // стани
   if (loading) return <div className="container-page py-6">Завантаження…</div>
   if (error) {
     return (
@@ -145,13 +150,10 @@ export default function Product() {
               )}
             </div>
 
-            {/* Мініатюри — ТІЛЬКИ ВНУТРІШНІЙ СКРОЛ, не розтягуємо сторінку */}
+            {/* Мініатюри — внутрішній скрол, не розтягують сторінку */}
             {photos.length > 1 && (
               <div className="mt-3 w-full max-w-full overflow-hidden">
-                <div
-                  className="flex gap-3 overflow-x-auto pb-1 max-w-full"
-                  style={{ WebkitOverflowScrolling: 'touch', scrollbarGutter: 'stable both-edges' }}
-                >
+                <div style={thumbStripStyle}>
                   {photos.map((src, i) => (
                     <button
                       key={i}
@@ -218,12 +220,11 @@ export default function Product() {
         </div>
       </div>
 
-      {/* Опис — ніколи не виходить за межі */}
+      {/* Опис */}
       <div className="mt-8 card overflow-x-hidden">
         <div className="card-body overflow-x-hidden">
           <div
             className="prose max-w-none break-words"
-            // якщо в описі трапляються таблиці/код з великою шириною — вони теж обріжуться без горизонтального скролу
             style={{ overflowX: 'hidden', wordBreak: 'break-word' }}
             dangerouslySetInnerHTML={{ __html: product.description || '' }}
           />
