@@ -72,7 +72,7 @@ export default function AdminProductEditor() {
     if (isNew) return
     ;(async () => {
       setLoading(true); setErr('')
-      const { data, error } = await supabase.from('products').select('*').eq('id', paramId).maybeSingle()
+      const { data, error } = await supabase.from('products').select('*').eq('id', paramId).single()
       if (error) setErr(error.message || 'Помилка завантаження')
       if (data) {
         setId(data.id); setSku(data.sku || ''); setName(data.name || '')
@@ -119,15 +119,14 @@ export default function AdminProductEditor() {
         name: name.trim(),
         price_dropship: Number(price) || 0,
         in_stock: !!inStock,
-        active: !!inStock,
         category_id: categoryId ? Number(categoryId) : null,
         description: descToSave || '',
         image_url: gallery[0] || null,
         gallery_json: gallery.length ? gallery : null,
       }
       let res
-      if (isNew) res = await supabase.from('products').insert(row).select().maybeSingle()
-      else res = await supabase.from('products').update(row).eq('id', paramId).select().maybeSingle()
+      if (isNew) res = await supabase.from('products').insert(row).select().single()
+      else res = await supabase.from('products').update(row).eq('id', paramId).select().single()
       if (res.error) throw res.error
       setMsg('Збережено')
       if (isNew && res.data?.id) nav(`/admin/products/${res.data.id}`, { replace: true })
@@ -214,7 +213,7 @@ export default function AdminProductEditor() {
               <label className="label mt-4">Галерея (перетягни, перший — головний)</label>
               <div className="grid grid-cols-5 gap-2">
                 {gallery.map((u, i) => (
-                  <div key={i} className="relative group cursor-move" draggable onDragStart={()=>{ dragIndex.current=i }} onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop(i)}>
+                  <div key={i} className="relative group cursor-move" draggable onDragStart={()=>{ dragIndex.current=i }} onDragOver={(e)=>e.preventDefault()} onDrop={()=>{ const from=dragIndex.current; if(from===-1||from===i) return; setGallery(prev=>{const arr=prev.slice(); const [m]=arr.splice(from,1); arr.splice(i,0,m); return arr}) }}>
                     <img src={u} alt={String(i)} className="w-full h-20 object-cover rounded" />
                     {i===0 && <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1 rounded">ГОЛОВНЕ</div>}
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1">

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
 export default function AdminProducts() {
-  const nav = useNavigate()
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([]) // {id,name}
   const [q, setQ] = useState('')
@@ -52,11 +51,10 @@ export default function AdminProducts() {
       category_id: p.category_id ?? null,
       image_url: p.image_url || null,
       gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : (p.gallery_json ? [p.gallery_json] : null),
-      active: p.active ?? true,
     }
-    const { data, error } = await supabase.from('products').insert(row).select().maybeSingle()
+    const { data, error } = await supabase.from('products').insert(row).select().single()
     if (!error && data) {
-      nav(`/admin/products/${data.id}`)
+      setItems(prev => [data, ...prev])
     }
   }
 
@@ -67,17 +65,10 @@ export default function AdminProducts() {
   }
 
   async function updateInline(p, patch) {
-    const { data, error } = await supabase.from('products').update(patch).eq('id', p.id).select().maybeSingle()
+    const { data, error } = await supabase.from('products').update(patch).eq('id', p.id).select().single()
     if (!error && data) {
       setItems(prev => prev.map(it => it.id === p.id ? { ...it, ...data } : it))
     }
-  }
-
-  function onAction(p, action) {
-    if (!action) return
-    if (action === 'edit') nav(`/admin/products/${p.id}`)
-    if (action === 'copy') copy(p)
-    if (action === 'delete') remove(p)
   }
 
   return (
@@ -97,12 +88,12 @@ export default function AdminProducts() {
         <div className="card-body">
           <div className="flex flex-wrap items-center gap-3 mb-3">
             <input className="input" placeholder="Пошук по назві або SKU…" value={q} onChange={e=>setQ(e.target.value)} />
-            <select className="input w-56" value={stockFilter} onChange={e=>setStockFilter(e.target.value)}>
+            <select className="input w-48" value={stockFilter} onChange={e=>setStockFilter(e.target.value)}>
               <option value="all">Усі товари</option>
               <option value="in">Тільки в наявності</option>
               <option value="out">Тільки відсутні</option>
             </select>
-            <select className="input w-64" value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
+            <select className="input w-56" value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
               <option value="all">Всі категорії</option>
               {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -112,20 +103,20 @@ export default function AdminProducts() {
           {loading ? <div className="text-muted">Завантаження…</div> : (
             <div className="divide-y">
               {filtered.map(p => (
-                <div key={p.id} className="py-3 flex items-center gap-3">
-                  <div className="w-14 h-14 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
+                <div key={p.id} className="py-3 grid grid-cols-[64px_1fr_9rem_10rem_7rem] items-center gap-3">
+                  <div className="w-16 h-16 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
                     {p.image_url ? <img src={p.image_url} alt={p.name} className="object-cover w-full h-full" /> : <span className="text-xs text-slate-400">без фото</span>}
                   </div>
 
-                  <div className="flex-[2] min-w-0">
+                  <div className="min-w-0">
                     <div className="font-medium truncate">{p.name || '— без назви —'}</div>
-                    <div className="text-xs text-slate-600 mt-0.5">SKU: <span className="font-mono">{p.sku || '—'}</span></div>
+                    <div className="text-xs text-slate-600 mt-0.5 truncate"><span className="opacity-70">SKU:</span> <span className="font-mono">{p.sku || '—'}</span></div>
                   </div>
 
-                  <div className="flex items-center gap-1 w-36">
+                  <div className="flex items-center gap-1">
                     <input
                       type="number"
-                      className="input w-full"
+                      className="input w-24"
                       defaultValue={p.price_dropship ?? p.price ?? 0}
                       onBlur={e => updateInline(p, { price_dropship: Number(e.target.value) || 0 })}
                       onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
@@ -134,17 +125,29 @@ export default function AdminProducts() {
                     <span>₴</span>
                   </div>
 
-                  <label className="inline-flex items-center gap-2 w-44 justify-center">
-                    <input type="checkbox" checked={!!p.in_stock} onChange={e=>updateInline(p,{ in_stock: e.target.checked, active: e.target.checked })} />
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!p.in_stock}
+                      onChange={e=>updateInline(p,{ in_stock: e.target.checked })}
+                    />
                     <span className="text-sm">{p.in_stock ? 'в наявності' : 'немає'}</span>
                   </label>
 
-                  <select className="input w-36" defaultValue="" onChange={e => { onAction(p, e.target.value); e.target.value='' }}>
-                    <option value="" disabled>Дії</option>
-                    <option value="edit">Редагувати</option>
-                    <option value="copy">Копіювати</option>
-                    <option value="delete">Видалити</option>
-                  </select>
+                  <div className="justify-self-end">
+                    <select className="input w-28" defaultValue="" onChange={async e => {
+                      const val = e.target.value
+                      e.target.value = ''
+                      if (val === 'edit') window.location.assign(`/admin/products/${p.id}`)
+                      if (val === 'copy') await copy(p)
+                      if (val === 'delete') await remove(p)
+                    }}>
+                      <option value="" disabled>Дії</option>
+                      <option value="edit">Редагувати</option>
+                      <option value="copy">Копіювати</option>
+                      <option value="delete">Видалити</option>
+                    </select>
+                  </div>
                 </div>
               ))}
               {(!loading && filtered.length === 0) && <div className="text-muted">Нічого не знайдено.</div>}
