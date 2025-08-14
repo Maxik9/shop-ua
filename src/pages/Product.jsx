@@ -6,9 +6,7 @@ import { useCart } from '../context/CartContext'
 
 /**
  * Картка товару з лайтбоксом, захистом від "порожнього екрану" та fallback-пошуком за SKU.
- * 1) Першою спробою тягнемо за id
- * 2) Якщо не знайшли — пробуємо за sku
- * 3) Помилки показуємо в UI, а не падаємо.
+ * Для сумісності з supabase-js v1: тільки .single() (без .maybeSingle()).
  */
 export default function Product() {
   const { id } = useParams()
@@ -36,26 +34,25 @@ export default function Product() {
     async function load() {
       setLoading(true); setError(''); setProduct(null)
       try {
-        // 1) Пошук за id
-        let q = supabase
+        // 1) Пошук за id (через .single())
+        let { data, error } = await supabase
           .from('products')
           .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
           .eq('id', id)
-          .maybeSingle()
-        let { data, error } = await q
+          .single()
 
-        // 2) Якщо не знайшли — пошук за sku
-        if (!data && !error) {
+        // Якщо не знайшли по id — пробуємо по sku
+        if ((!data || error) && (!error || (error && String(error.message || '').toLowerCase().includes('no rows')))) {
           const bySku = await supabase
             .from('products')
             .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
             .eq('sku', id)
-            .maybeSingle()
+            .single()
           data = bySku.data
           error = bySku.error
         }
 
-        if (error) {
+        if (error && !String(error.message || '').toLowerCase().includes('no rows')) {
           setError(error.message || 'Помилка завантаження')
         }
 
