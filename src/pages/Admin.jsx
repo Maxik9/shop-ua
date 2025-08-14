@@ -1,43 +1,36 @@
+// src/pages/Admin.jsx  (дашборд)
 import { Link } from 'react-router-dom'
 
 export default function Admin() {
   return (
-    <div className="max-w-6xl mx-auto p-3">
-      <div className="flex items-center justify-between gap-3 mb-5">
-        <h1 className="text-2xl font-semibold">Адмін-панель</h1>
-      </div>
+    <div className="container-page my-6">
+      <h1 className="h1 mb-4">Адмін-панель</h1>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Tile to="/admin/orders" title="Замовлення" color="indigo"
-              desc="Статуси, ТТН, сума до виплати" />
-        <Tile to="/admin/products" title="Товари" color="emerald"
-              desc="Додавання, редагування, фото та галереї" />
-        <Tile to="/admin/categories" title="Категорії" color="amber"
-              desc="Категорії, підкатегорії та їх зображення" />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Link to="/admin/orders" className="card hover:shadow transition">
+          <div className="card-body">
+            <div className="text-xl font-semibold mb-1">Замовлення</div>
+            <div className="text-muted">Статуси, ТТН, сума до виплати</div>
+            <div className="mt-2 text-indigo-600">Перейти →</div>
+          </div>
+        </Link>
+
+        <Link to="/admin/products" className="card hover:shadow transition">
+          <div className="card-body">
+            <div className="text-xl font-semibold mb-1">Товари</div>
+            <div className="text-muted">Додавання, редагування, фото та галереї</div>
+            <div className="mt-2 text-indigo-600">Перейти →</div>
+          </div>
+        </Link>
+
+        <Link to="/admin/categories" className="card hover:shadow transition">
+          <div className="card-body">
+            <div className="text-xl font-semibold mb-1">Категорії</div>
+            <div className="text-muted">Категорії, підкатегорії та їх зображення</div>
+            <div className="mt-2 text-indigo-600">Перейти →</div>
+          </div>
+        </Link>
       </div>
     </div>
-  )
-}
-
-function Tile({ to, title, desc, color }) {
-  const bg = {
-    indigo: 'bg-indigo-50 text-indigo-600',
-    emerald: 'bg-emerald-50 text-emerald-600',
-    amber: 'bg-amber-50 text-amber-600',
-  }[color] || 'bg-slate-50 text-slate-600'
-
-  return (
-    <Link to={to} className="group block bg-white rounded-xl border border-slate-200 p-5 hover:shadow-sm transition">
-      <div className="flex items-start gap-4">
-        <div className={`shrink-0 w-11 h-11 rounded-xl grid place-content-center ${bg}`}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v12H4V6zm2 2v8h12V8H6z"/></svg>
-        </div>
-        <div className="min-w-0">
-          <div className="text-lg font-medium">{title}</div>
-          <div className="text-slate-500 text-sm">{desc}</div>
-        </div>
-      </div>
-      <div className="mt-4 text-slate-600 text-sm group-hover:underline">Перейти →</div>
-    </Link>
   )
 }
