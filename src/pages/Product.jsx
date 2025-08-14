@@ -1,10 +1,14 @@
 // src/pages/Product.jsx
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { useCart } from '../context/CartContext'
 
 export default function Product() {
   const { id } = useParams()
+  const navigate = useNavigate()
+  const { addItem } = useCart()
+
   const [product, setProduct] = useState(null)
   const [loading, setLoading] = useState(true)
   const [imgIndex, setImgIndex] = useState(0)
@@ -18,13 +22,15 @@ export default function Product() {
         .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
         .eq('id', id)
         .single()
+
       if (!mounted) return
-      if (!error) {
-        // формуємо масив фото: спочатку головне, потім з галереї (без дублів)
-        const gallery = Array.isArray(data?.gallery_json) ? data.gallery_json : []
-        const photos = [data?.image_url, ...gallery].filter(Boolean)
+      if (!error && data) {
+        // зберемо фінальний масив фото: головне + галерея (без дублів)
+        const gallery = Array.isArray(data.gallery_json) ? data.gallery_json : []
+        const photos = [data.image_url, ...gallery].filter(Boolean)
         const uniq = Array.from(new Set(photos))
         setProduct({ ...data, _photos: uniq })
+        setImgIndex(0)
       }
       setLoading(false)
     }
@@ -34,9 +40,8 @@ export default function Product() {
 
   const photos = useMemo(() => product?._photos || [], [product])
 
-  if (loading) {
-    return <div className="container-page py-6">Завантаження…</div>
-  }
+  if (loading) return <div className="container-page py-6">Завантаження…</div>
+
   if (!product) {
     return (
       <div className="container-page py-6">
@@ -46,15 +51,19 @@ export default function Product() {
     )
   }
 
+  const canBuy = !!product.in_stock
+  const addOne = () => addItem?.(product, 1, product.price_dropship)
+  const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
+
   return (
     <div className="container-page py-6">
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Фото + галерея */}
+      <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
+        {/* Фото + мініатюри */}
         <div className="card">
           <div className="card-body">
             <div className="w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
               {photos[imgIndex] ? (
-                <img src={photos[imgIndex]} alt="" className="w-full h-full object-contain" />
+                <img src={photos[imgIndex]} alt={product.name} className="w-full h-full object-contain" />
               ) : (
                 <div className="text-muted">Немає фото</div>
               )}
@@ -77,10 +86,14 @@ export default function Product() {
           </div>
         </div>
 
-        {/* Інфо */}
+        {/* Інформація */}
         <div>
           <h1 className="h1 mb-2">{product.name}</h1>
-          {product.sku && <div className="text-sm text-muted mb-2">Артикул: <b>{product.sku}</b></div>}
+          {product.sku && (
+            <div className="text-sm text-muted mb-2">
+              Артикул: <b>{product.sku}</b>
+            </div>
+          )}
 
           <div className="mb-3">
             {product.in_stock ? (
@@ -95,27 +108,34 @@ export default function Product() {
           </div>
 
           {typeof product.price_dropship === 'number' && (
-            <div className="text-2xl font-semibold mb-4">{product.price_dropship.toFixed(2)} ₴</div>
+            <div className="text-2xl font-semibold mb-4">{Number(product.price_dropship).toFixed(2)} ₴</div>
           )}
 
-          {/* Опис — РЕНДЕР ЯК HTML */}
+          {/* ОПИС — рендеримо як HTML */}
           <div
             className="prose max-w-none"
             dangerouslySetInnerHTML={{ __html: product.description || '' }}
           />
 
-          {/* Тут можна розмістити твої кнопки «Додати в кошик» / «Замовити»
-              і заблокувати їх, якщо !product.in_stock */}
-          {/* 
-          <div className="mt-6 flex gap-3">
-            <button className={`btn-outline ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`} disabled={!product.in_stock}>
+          {/* Дії */}
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={addOne}
+              className={`btn-outline w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!canBuy}
+            >
               Додати в кошик
             </button>
-            <button className={`btn-primary ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`} disabled={!product.in_stock}>
+            <button
+              type="button"
+              onClick={buyNow}
+              className={`btn-primary w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!canBuy}
+            >
               Замовити
             </button>
           </div>
-          */}
 
           <div className="mt-6">
             <Link to="/" className="btn-outline">← До каталогу</Link>
