@@ -3,13 +3,8 @@ import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import AvailabilityBadge from './AvailabilityBadge'
 
-/**
- * Карточка товару для каталогу
- * Кнопка "До кошика" приклеєна до низу блоку (mt-auto)
- */
 export default function ProductCard({ product }) {
   const { addItem } = useCart()
-
   if (!product) return null
 
   const img =
@@ -26,7 +21,7 @@ export default function ProductCard({ product }) {
     <div className="card h-full flex flex-col">
       {/* Фото */}
       <Link to={`/product/${product.id}`} className="block">
-        <div className="w-full aspect-[4/3] bg-slate-100 rounded-t-2xl overflow-hidden">
+        <div className="w-full aspect-square bg-white rounded-t-2xl overflow-hidden">
           {img ? (
             <img src={img} alt={product.name} className="w-full h-full object-cover" />
           ) : (
@@ -36,10 +31,10 @@ export default function ProductCard({ product }) {
       </Link>
 
       {/* Контент */}
-      <div className="card-body flex flex-col">
+      <div className="card-body flex flex-col flex-1">
         <Link
           to={`/product/${product.id}`}
-          className="font-semibold leading-snug hover:text-indigo-600 mb-2 min-h-[3.5rem] line-clamp-3"
+          className="font-semibold leading-snug hover:text-indigo-600 mb-2 line-clamp-2 min-h-[3rem]"
           title={product.name}
         >
           {product.name}
@@ -52,7 +47,7 @@ export default function ProductCard({ product }) {
         <div className="text-muted text-sm">Дроп-ціна</div>
         <div className="text-lg font-semibold mb-2">{price.toFixed(2)} ₴</div>
 
-        {/* Кнопка — приклеєна до низу */}
+        {/* Кнопка — завжди внизу */}
         <div className="mt-auto pt-2">
           <button
             onClick={add}
