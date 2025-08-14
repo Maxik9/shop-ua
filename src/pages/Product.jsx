@@ -5,8 +5,9 @@ import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
 /**
- * Працюючий варіант під твою архітектуру (Supabase + CartContext).
- * Без горизонтального скролу, стабільні мініатюри і адаптив.
+ * Картка товару з перегортанням фото, стрічкою мініатюр та ЛАЙТБОКСОМ (збільшенням)
+ * - Клік по головному фото відкриває повноекранний переглядач
+ * - У переглядачі: зум +/- , перетягування, стрілки вліво/вправо, Esc — закрити
  */
 export default function Product() {
   const { id } = useParams()
@@ -20,6 +21,12 @@ export default function Product() {
   // swipe/scroll refs
   const startXRef = useRef(null)
   const thumbsRef = useRef(null)
+
+  // Lightbox state
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const dragRef = useRef({ dragging: false, sx: 0, sy: 0, px: 0, py: 0 })
 
   useEffect(() => {
     let mounted = true
@@ -61,6 +68,18 @@ export default function Product() {
     else if (right > viewR) c.scrollTo({ left: right - c.clientWidth + 8, behavior: 'smooth' })
   }, [imgIndex])
 
+  // Закриття lightbox по Esc
+  useEffect(() => {
+    function onKey(e){
+      if (!lightboxOpen) return
+      if (e.key === 'Escape') setLightboxOpen(false)
+      else if (e.key === 'ArrowLeft') goTo(imgIndex - 1)
+      else if (e.key === 'ArrowRight') goTo(imgIndex + 1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightboxOpen, imgIndex, photos.length])
+
   if (loading) return <div className="container-page py-6">Завантаження…</div>
 
   if (!product) {
@@ -95,6 +114,49 @@ export default function Product() {
     startXRef.current = null
   }
 
+  function openLightbox(){
+    setLightboxOpen(true)
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }
+  function zoomIn(){ setZoom(z => Math.min(4, +(z + 0.25).toFixed(2))) }
+  function zoomOut(){ setZoom(z => Math.max(1, +(z - 0.25).toFixed(2))) }
+  function resetZoom(){ setZoom(1); setPan({ x: 0, y: 0 }) }
+
+  function onWheel(e){
+    e.preventDefault()
+    const delta = e.deltaY < 0 ? 0.25 : -0.25
+    setZoom(z => {
+      const nz = Math.min(4, Math.max(1, +(z + delta).toFixed(2)))
+      return nz
+    })
+  }
+
+  function onDragStart(e){
+    e.preventDefault()
+    dragRef.current = { dragging: true, sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y }
+  }
+  function onDragMove(e){
+    if (!dragRef.current.dragging) return
+    const dx = e.clientX - dragRef.current.sx
+    const dy = e.clientY - dragRef.current.sy
+    setPan({ x: dragRef.current.px + dx, y: dragRef.current.py + dy })
+  }
+  function onDragEnd(){ dragRef.current.dragging = false }
+
+  // Touch drag in lightbox
+  function onTouchDragStart(e){
+    if (e.touches.length !== 1) return
+    dragRef.current = { dragging: true, sx: e.touches[0].clientX, sy: e.touches[0].clientY, px: pan.x, py: pan.y }
+  }
+  function onTouchDragMove(e){
+    if (!dragRef.current.dragging || e.touches.length !== 1) return
+    const dx = e.touches[0].clientX - dragRef.current.sx
+    const dy = e.touches[0].clientY - dragRef.current.sy
+    setPan({ x: dragRef.current.px + dx, y: dragRef.current.py + dy })
+  }
+  function onTouchDragEnd(){ dragRef.current.dragging = false }
+
   return (
     <div className="container-page py-4 sm:py-6 overflow-x-hidden">
       {/* Кнопка назад у верхній частині */}
@@ -112,9 +174,15 @@ export default function Product() {
               className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center select-none"
               onTouchStart={onTouchStart}
               onTouchEnd={onTouchEnd}
+              onDoubleClick={openLightbox}
             >
               {photos[imgIndex] ? (
-                <img src={photos[imgIndex]} alt={product.name} className="w-full h-full object-contain" />
+                <img
+                  src={photos[imgIndex]}
+                  alt={product.name}
+                  className="w-full h-full object-contain cursor-zoom-in"
+                  onClick={openLightbox}
+                />
               ) : (
                 <div className="text-muted">Немає фото</div>
               )}
@@ -151,7 +219,7 @@ export default function Product() {
                         key={i}
                         data-idx={i}
                         className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-600 outline outline-2 outline-indigo-500' : 'border-slate-200'}`}
-                        onClick={() => goTo(i)}
+                        onClick={() => setImgIndex(i)}
                         title={`Фото ${i+1}`}
                       >
                         <img src={src} alt="" className="w-full h-full object-cover" />
@@ -223,6 +291,65 @@ export default function Product() {
           />
         </div>
       </div>
+
+      {/* LIGHTBOX */}
+      {lightboxOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center"
+          onWheel={onWheel}
+          onMouseMove={onDragMove}
+          onMouseUp={onDragEnd}
+          onMouseLeave={onDragEnd}
+          onTouchMove={onTouchDragMove}
+          onTouchEnd={onTouchDragEnd}
+        >
+          <button
+            className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 hover:bg-white text-slate-800 text-xl leading-none flex items-center justify-center"
+            onClick={() => setLightboxOpen(false)}
+            aria-label="Закрити"
+          >
+            ×
+          </button>
+
+          {/* Prev / Next */}
+          {photos.length > 1 && (
+            <>
+              <button
+                onClick={prevImg}
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl"
+                aria-label="Попереднє фото"
+              >‹</button>
+              <button
+                onClick={nextImg}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl"
+                aria-label="Наступне фото"
+              >›</button>
+            </>
+          )}
+
+          {/* Toolbar */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+            <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomOut} disabled={zoom<=1}>−</button>
+            <button className="btn-outline !bg-white/90 !text-slate-900" onClick={resetZoom}>100%</button>
+            <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomIn}>+</button>
+          </div>
+
+          {/* Image area */}
+          <div
+            className="relative max-w-[95vw] max-h-[85vh] overflow-hidden cursor-grab active:cursor-grabbing"
+            onMouseDown={onDragStart}
+            onTouchStart={onTouchDragStart}
+          >
+            <img
+              src={photos[imgIndex]}
+              alt=""
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+              className="select-none pointer-events-none object-contain max-h-[85vh] max-w-[95vw]"
+              draggable={false}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
