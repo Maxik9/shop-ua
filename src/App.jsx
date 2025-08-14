@@ -12,6 +12,7 @@ import AdminOrders from './pages/AdminOrders'   // ⟵ НОВЕ
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { CartProvider } from './context/CartContext'
+import ResetPassword from './pages/ResetPassword'
 
 function PrivateRoute({ children }) {
   const [ready, setReady] = useState(false)
@@ -57,6 +58,7 @@ export default function App() {
 
         {/* Якщо шлях не знайдено — на головну */}
         <Route path="*" element={<Navigate to="/" />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Routes>
     </CartProvider>
   )
