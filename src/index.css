@@ -16,16 +16,21 @@ body { color:#0f172a; background:#f6f7fb; }
   line-height:1; letter-spacing:.2px; transition:all .15s ease; user-select:none;
 }
 .btn-primary { background:#5865f2; color:#fff; box-shadow:0 6px 14px rgba(88,101,242,.25); }
-.btn-primary:hover { background:#4956e6; transform:translateY(-1px); }
-.btn-ghost { background:#eef2ff; color:#3730a3; }
-.btn-ghost:hover { background:#e0e7ff; }
-.btn-outline { background:#fff; color:#1f2937; border:1px solid #d1d5db; }
+.btn-primary:hover { background:#4956e6; transition:all .15s ease; }
+.btn-outline { background:#fff; color:#0f172a; border:1px solid #e6e9ef; }
 .btn-outline:hover { background:#f8fafc; }
 
+/* Інпути */
 .input {
   width:100%; height:44px; border:1px solid #d1d5db; border-radius:12px;
-  padding:0 14px; font-size:15px; background:#fff;
+  padding-right:14px; padding-left:14px; font-size:15px; background:#fff;
 }
+
+/* Інпут з іконкою зліва */
+.input--with-icon {
+  padding-left:36px;
+}
+
 .input:focus { outline:none; border-color:#5865f2; box-shadow:0 0 0 3px rgba(88,101,242,.15); }
 
 .input-xs { height:40px; border-radius:10px; font-size:14px; padding:0 12px; }
@@ -35,8 +40,7 @@ body { color:#0f172a; background:#f6f7fb; }
   font-size:12px; background:#eef2ff; color:#3730a3; font-weight:600;
 }
 
-/* Утилиты */
+/* Утиліти */
 .text-muted { color:#64748b; }
 .price { font-weight:800; letter-spacing:.2px; }
-.h1 { font-size:28px; font-weight:800; }
-.h2 { font-size:22px; font-weight:800; }
+.h1 { font-size:28px; font-weight:800; letter-spacing:.2px; }

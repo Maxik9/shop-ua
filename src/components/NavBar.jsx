@@ -13,99 +13,72 @@ export default function NavBar() {
   const loc = useLocation()
 
   useEffect(() => {
-    // закривати бургер при зміні сторінки
-    setOpen(false)
-  }, [loc.pathname])
-
-  useEffect(() => {
-    let unsub = () => {}
-    async function init() {
-      const { data } = await supabase.auth.getSession()
-      const u = data.session?.user ?? null
-      setUser(u)
-      if (u) {
-        const { data: ok } = await supabase.rpc('is_admin', { u: u.id })
-        setIsAdmin(Boolean(ok))
-      } else setIsAdmin(false)
-    }
-    init()
-    const { data: l } = supabase.auth.onAuthStateChange((_e, s) => {
-      const u = s?.user ?? null
-      setUser(u)
-      if (u) supabase.rpc('is_admin', { u: u.id }).then(({ data }) => setIsAdmin(Boolean(data)))
-      else setIsAdmin(false)
+    supabase.auth.getUser().then(({ data }) => setUser(data?.user || null))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user || null)
     })
-    unsub = () => l.subscription.unsubscribe()
-    return () => unsub()
+    return () => sub.subscription.unsubscribe()
   }, [])
 
-  async function logout(){ await supabase.auth.signOut() }
+  useEffect(() => {
+    (async () => {
+      if (!user) { setIsAdmin(false); return }
+      const { data } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+      setIsAdmin(data?.role === 'admin')
+    })()
+  }, [user])
 
-  function submitSearch(e){
+  function submitSearch(e) {
     e.preventDefault()
     const q = term.trim()
-    nav(q ? `/search?q=${encodeURIComponent(q)}` : `/search`)
+    if (q.length < 2) return
+    nav(`/search?q=${encodeURIComponent(q)}`)
+    setOpen(false)
   }
 
-  const NavLinks = ({onClick}) => (
-    <>
-      <Link to="/" onClick={onClick} className="hover:text-indigo-600">Каталог</Link>
-      {user && <Link to="/dashboard" onClick={onClick} className="hover:text-indigo-600">Мої замовлення</Link>}
-      {isAdmin && <Link to="/admin" onClick={onClick} className="hover:text-indigo-600">Адмін</Link>}
-      <Link to="/about" onClick={onClick} className="hover:text-indigo-600">Про нас</Link>
-      <Link to="/contacts" onClick={onClick} className="hover:text-indigo-600">Контакти</Link>
-    </>
-  )
+  function toggleOpen() {
+    setOpen(o => !o)
+  }
+  async function logout() {
+    await supabase.auth.signOut()
+    if (loc.pathname.startsWith('/admin')) nav('/')
+  }
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-3 h-14 flex items-center gap-3">
-        {/* Бургер */}
-        <button
-          className="md:hidden w-10 h-10 rounded-lg border border-slate-300 flex items-center justify-center"
-          onClick={() => setOpen(v => !v)}
-          aria-label="Меню"
-        >
-          {!open ? (
-            // стандартний бургер
-            <svg viewBox="0 0 24 24" className="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          ) : (
-            // хрестик
-            <svg viewBox="0 0 24 24" className="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M6 6l12 12M6 18L18 6" />
-            </svg>
-          )}
-        </button>
+      <div className="max-w-6xl mx-auto px-3 h-16 flex items-center gap-3">
+        {/* Лого */}
+        <Link to="/" className="font-extrabold text-xl text-indigo-600">Drop-UA</Link>
 
-        <Link to="/" className="font-semibold text-indigo-600">Drop-UA</Link>
-
-        {/* Десктоп-меню */}
+        {/* Навігація */}
         <nav className="hidden md:flex items-center gap-4 text-sm">
-          <NavLinks />
+          <Link to="/catalog" className="hover:underline">Каталог</Link>
+          <Link to="/orders" className="hover:underline">Мої замовлення</Link>
+          {isAdmin && <Link to="/admin" className="hover:underline">Адмін</Link>}
+          <Link to="/about" className="hover:underline">Про нас</Link>
+          <Link to="/contacts" className="hover:underline">Контакти</Link>
         </nav>
 
         {/* Пошук (десктоп) */}
         <form onSubmit={submitSearch} className="hidden md:block ml-auto">
           <div className="relative">
             <input
-              className="input pl-9 w-[280px]"
+              className="input input--with-icon w-[280px]"
               placeholder="Пошук товарів…"
               value={term}
               onChange={e=>setTerm(e.target.value)}
             />
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M12.9 14.32a8 8 0 111.414-1.414l3.387 3.387a1 1 0 01-1.414 1.414l-3.387-3.387zM14 8a6 6 0 11-12 0 6 6 0 0112 0z" clipRule="evenodd" />
+              <path fillRule="evenodd" d="M12.9 14.32a8 8 0 111.41-1.41l4.39 4.39a1 1 0 01-1.42 1.42l-4.38-4.4zM14 8a6 6 0 11-12 0 6 6 0 0112 0z" clipRule="evenodd" />
             </svg>
           </div>
         </form>
 
-        {/* Кошик + кнопки (моб/десктоп) */}
-        <div className="md:ml-3 ml-auto flex items-center gap-2">
-          {/* кнопка пошуку на мобільному */}
-          <Link to="/search" className="md:hidden w-10 h-10 rounded-lg border border-slate-300 flex items-center justify-center" title="Пошук">
-            <svg viewBox="0 0 24 24" className="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        {/* Кнопки справа */}
+        <div className="ml-2 flex items-center gap-2">
+          {/* Мобільна кнопка пошуку */}
+          <Link to="/search" className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-300 hover:bg-slate-50" title="Пошук">
+            <svg viewBox="0 0 24 24" className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="11" cy="11" r="7" />
               <path d="M21 21l-4.35-4.35" />
             </svg>
@@ -120,15 +93,20 @@ export default function NavBar() {
             )}
           </Link>
 
+          {/* Вхід/Вихід */}
           {user ? (
             <button onClick={logout} className="hidden md:inline-flex h-10 px-3 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50">
               Вийти
             </button>
           ) : (
-            <Link to="/login" className="hidden md:inline-flex h-10 px-3 text-sm items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+            <Link to="/login" className="hidden md:inline-flex h-10 px-3 text-sm items-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
               Вхід / Реєстрація
             </Link>
           )}
+
+          {/* Бургер */}
+          <button className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-300"
+            onClick={toggleOpen} aria-label="Menu">☰</button>
         </div>
       </div>
 
@@ -138,25 +116,34 @@ export default function NavBar() {
           <div className="max-w-6xl mx-auto px-3 py-3 flex flex-col gap-3 text-sm">
             {/* пошук у меню на мобі */}
             <form onSubmit={submitSearch}>
-              <input
-                className="input"
-                placeholder="Пошук товарів…"
-                value={term}
-                onChange={e=>setTerm(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  className="input input--with-icon"
+                  placeholder="Пошук товарів…"
+                  value={term}
+                  onChange={e=>setTerm(e.target.value)}
+                />
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M12.9 14.32a8 8 0 111.41-1.41l4.39 4.39a1 1 0 01-1.42 1.42l-4.38-4.4zM14 8a6 6 0 11-12 0 6 6 0 0112 0z" clipRule="evenodd" />
+                </svg>
+              </div>
             </form>
-            <NavLinks onClick={() => setOpen(false)} />
-            <div className="pt-2">
-              {user ? (
-                <button onClick={logout} className="h-9 px-3 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50 w-full">
-                  Вийти
-                </button>
-              ) : (
-                <Link to="/login" className="h-9 px-3 text-sm inline-flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 w-full">
-                  Вхід / Реєстрація
-                </Link>
-              )}
-            </div>
+
+            <Link to="/catalog" onClick={()=>setOpen(false)}>Каталог</Link>
+            <Link to="/orders" onClick={()=>setOpen(false)}>Мої замовлення</Link>
+            {isAdmin && <Link to="/admin" onClick={()=>setOpen(false)}>Адмін</Link>}
+            <Link to="/about" onClick={()=>setOpen(false)}>Про нас</Link>
+            <Link to="/contacts" onClick={()=>setOpen(false)}>Контакти</Link>
+
+            {user ? (
+              <button onClick={logout} className="h-9 px-3 text-sm inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white hover:bg-slate-50 w-full">
+                Вийти
+              </button>
+            ) : (
+              <Link to="/login" className="h-9 px-3 text-sm inline-flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 w-full">
+                Вхід / Реєстрація
+              </Link>
+            )}
           </div>
         </div>
       )}
