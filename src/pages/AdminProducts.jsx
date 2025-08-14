@@ -34,6 +34,7 @@ export default function AdminProducts() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -45,13 +46,19 @@ export default function AdminProducts() {
   }, [q, items])
 
   async function load() {
-    setLoading(true)
+    setLoading(true); setLoadError('')
     const { data, error } = await supabase
       .from('products')
-      .select('id, sku, name, price, price_dropship, in_stock, image_url, description')
+      .select('*')
       .order('id', { ascending: false })
       .limit(500)
-    if (!error) setItems(data || [])
+    if (error) {
+      console.error('[AdminProducts] load error:', error)
+      setLoadError(error.message || 'Помилка завантаження')
+      setItems([])
+    } else {
+      setItems(data || [])
+    }
     setLoading(false)
   }
   useEffect(() => { load() }, [])
@@ -64,7 +71,6 @@ export default function AdminProducts() {
   async function save() {
     try {
       setSaving(true); setMsg('')
-      // 1) upload images if provided
       let mainUrl = null
       if (mainFile) mainUrl = await uploadToBucket(mainFile)
       let galleryUrls = []
@@ -124,6 +130,10 @@ export default function AdminProducts() {
         <h1 className="text-2xl font-semibold">Товари</h1>
         <Link to="/admin" className="btn-outline">← Адмін</Link>
       </div>
+
+      {loadError && (
+        <div className="mb-3 text-sm text-red-600">Помилка: {loadError}</div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Форма */}
@@ -221,7 +231,7 @@ export default function AdminProducts() {
                     </div>
                   </div>
                 ))}
-                {filtered.length === 0 && <div className="text-muted">Нічого не знайдено.</div>}
+                {(!loading && filtered.length === 0) && <div className="text-muted">Нічого не знайдено.</div>}
               </div>
             )}
           </div>
