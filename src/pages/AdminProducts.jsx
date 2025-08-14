@@ -14,8 +14,7 @@ export default function AdminProducts() {
     price_dropship:'', image_url:'', gallery_json:[]
   }
   const [form, setForm] = useState(emptyForm)
-  const [mainFile, setMainFile] = useState(null)
-  const [galleryFiles, setGalleryFiles] = useState([])
+    const [galleryFiles, setGalleryFiles] = useState([])
 
   useEffect(() => { loadAll() }, [])
   async function loadAll() {
@@ -73,8 +72,7 @@ export default function AdminProducts() {
     if (!form.name || !form.price_dropship) { alert('Назва та дроп-ціна — обов’язкові'); return }
     setLoading(true)
     try {
-      let image_url = form.image_url
-      if (mainFile) image_url = await uploadToStorage(mainFile)
+      let image_url = form.gallery_json?.[0] || form.image_url
 
       let gallery = Array.isArray(form.gallery_json) ? [...form.gallery_json] : []
       if (galleryFiles.length) {
@@ -178,13 +176,14 @@ export default function AdminProducts() {
 
             <div className="space-y-4">
               <Field label="Головне фото">
-                {form.image_url && (
-                  <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
-                    <img src={form.image_url} alt="" className="w-full h-full object-contain" />
-                  </div>
-                )}
-                <input className="input" type="file" accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
-              </Field>
+  {(form.gallery_json?.[0] || form.image_url) ? (
+    <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
+      <img src={form.gallery_json?.[0] || form.image_url} alt="" className="w-full h-full object-contain" />
+    </div>
+  ) : (
+    <div className="text-sm text-muted">Головне фото береться з <b>першого</b> зображення у галереї нижче.</div>
+  )}
+</Field>
 
               <Field label="Галерея (можна кілька)">
                 {Array.isArray(form.gallery_json) && form.gallery_json.length > 0 && (
