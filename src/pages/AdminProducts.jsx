@@ -6,17 +6,21 @@ export default function AdminProducts() {
   const nav = useNavigate()
   const [items, setItems] = useState([])
   const [q, setQ] = useState('')
+  const [stockFilter, setStockFilter] = useState('all') // all | in | out
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return items
-    return items.filter(p =>
+    let arr = items
+    if (stockFilter === 'in') arr = arr.filter(p => !!p.in_stock)
+    if (stockFilter === 'out') arr = arr.filter(p => !p.in_stock)
+    if (!s) return arr
+    return arr.filter(p =>
       (p.name || '').toLowerCase().includes(s) ||
       (p.sku || '').toLowerCase().includes(s)
     )
-  }, [q, items])
+  }, [q, items, stockFilter])
 
   async function load() {
     setLoading(true); setErr('')
@@ -43,6 +47,7 @@ export default function AdminProducts() {
     const { data, error } = await supabase.from('products').insert(row).select().maybeSingle()
     if (!error && data) {
       setItems(prev => [data, ...prev])
+      nav(`/admin/products/${data.id}`) // відкриваємо редактор скопійованого
     }
   }
 
@@ -50,6 +55,13 @@ export default function AdminProducts() {
     if (!confirm(`Видалити товар «${p.name}»?`)) return
     const { error } = await supabase.from('products').delete().eq('id', p.id)
     if (!error) setItems(prev => prev.filter(x => x.id !== p.id))
+  }
+
+  async function updateInline(p, patch) {
+    const { data, error } = await supabase.from('products').update(patch).eq('id', p.id).select().maybeSingle()
+    if (!error && data) {
+      setItems(prev => prev.map(it => it.id === p.id ? { ...it, ...data } : it))
+    }
   }
 
   function onAction(p, action) {
@@ -76,6 +88,11 @@ export default function AdminProducts() {
         <div className="card-body">
           <div className="flex items-center gap-3 mb-3">
             <input className="input" placeholder="Пошук по назві або SKU…" value={q} onChange={e=>setQ(e.target.value)} />
+            <select className="input w-56" value={stockFilter} onChange={e=>setStockFilter(e.target.value)}>
+              <option value="all">Усі товари</option>
+              <option value="in">Тільки в наявності</option>
+              <option value="out">Тільки відсутні</option>
+            </select>
             <div className="ml-auto text-muted">{filtered.length} шт.</div>
           </div>
 
@@ -86,12 +103,30 @@ export default function AdminProducts() {
                   <div className="w-14 h-14 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
                     {p.image_url ? <img src={p.image_url} alt={p.name} className="object-cover w-full h-full" /> : <span className="text-xs text-slate-400">без фото</span>}
                   </div>
+
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{p.name}</div>
-                    <div className="text-sm text-slate-500 truncate">{p.sku}</div>
+                    <div className="text-xs text-slate-500 truncate">SKU: {p.sku || '—'}</div>
                   </div>
-                  <div className="w-24 text-right">{(p.price_dropship ?? p.price ?? 0).toFixed(2)} ₴</div>
-                  <div className="w-28 text-center text-sm">{p.in_stock ? 'в наявності' : 'немає'}</div>
+
+                  {/* inline price */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      className="input w-28"
+                      defaultValue={p.price_dropship ?? p.price ?? 0}
+                      onBlur={e => updateInline(p, { price_dropship: Number(e.target.value) || 0 })}
+                      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                      title="Ціна (редагується)"
+                    />
+                    ₴
+                  </div>
+
+                  {/* inline stock toggle */}
+                  <label className="inline-flex items-center gap-2 w-40 justify-center">
+                    <input type="checkbox" checked={!!p.in_stock} onChange={e=>updateInline(p,{ in_stock: e.target.checked })} />
+                    <span className="text-sm">{p.in_stock ? 'в наявності' : 'немає'}</span>
+                  </label>
 
                   <select className="input w-36" defaultValue="" onChange={e => { onAction(p, e.target.value); e.target.value='' }}>
                     <option value="" disabled>Дії</option>
