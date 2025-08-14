@@ -30,14 +30,6 @@ export default function Admin() {
             <div className="mt-2 text-indigo-600">Перейти →</div>
           </div>
         </Link>
-
-        <Link to="/admin/html-editor" className="card hover:shadow transition">
-          <div className="card-body">
-            <div className="text-xl font-semibold mb-1">HTML-редактор описів</div>
-            <div className="text-muted">Редагуйте HTML-опис товарів з превʼю</div>
-            <div className="mt-2 text-indigo-600">Перейти →</div>
-          </div>
-        </Link>
       </div>
     </div>
   )
