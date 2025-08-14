@@ -1,15 +1,9 @@
-// src/pages/AdminImport.jsx (read-excel-file, no known high vuln)
+// src/pages/AdminImport.jsx (read-excel-file + multi-images)
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import readXlsxFile from 'read-excel-file'
 import { supabase } from '../supabaseClient'
 
-/**
- * Підтримка: .xlsx/.xls (через read-excel-file) і .csv як запасний варіант.
- * Перший рядок — заголовок з назвами колонок:
- * sku, name, description, price_dropship, category_id, image_url, active
- * upsert по sku
- */
 export default function AdminImport() {
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
@@ -26,106 +20,93 @@ export default function AdminImport() {
         const text = await file.text()
         setRows(parseCSV(text))
       } else {
-        // XLSX / XLS
-        const rows = await readXlsxFile(file, { dateFormat: 'yyyy-mm-dd' })
-        setRows(parseXLS(rows))
+        const matrix = await readXlsxFile(file)
+        setRows(parseXLS(matrix))
       }
-    } catch (e) {
-      setError(e.message || 'Помилка читання файлу')
-    }
+    } catch (e) { setError(e.message || 'Помилка читання файлу') }
   }
 
   function parseXLS(matrix) {
     if (!Array.isArray(matrix) || matrix.length === 0) return []
     const header = matrix[0].map(h => String(h || '').trim())
-    const required = ['sku','name','price_dropship']
-    for (const col of required) {
-      if (!header.includes(col)) throw new Error(`Відсутня колонка "${col}"`)
-    }
     const idx = Object.fromEntries(header.map((h,i)=>[h,i]))
-    const list = []
-    for (let i=1;i<matrix.length;i++) {
-      const cols = matrix[i]
-      if (!cols || cols.length===0) continue
-      const rec = {
-        sku: String(cols[idx.sku] ?? '').trim(),
-        name: String(cols[idx.name] ?? '').trim(),
-        description: String(cols[idx.description] ?? '').trim(),
-        price_dropship: Number(cols[idx.price_dropship] ?? 0) || 0,
-        category_id: (idx.category_id!=null ? (cols[idx.category_id] === '' ? null : Number(cols[idx.category_id])) : null),
-        image_url: String(cols[idx.image_url] ?? '').trim(),
-        active: String(cols[idx.active] ?? 'true').toLowerCase() === 'true',
-      }
-      if (!rec.sku || !rec.name) continue
-      list.push(rec)
+    const need = ['sku','name','price_dropship']
+    for (const c of need) if (!(c in idx)) throw new Error(`Відсутня колонка "${c}"`)
+
+    const out = []
+    for (let r=1;r<matrix.length;r++) {
+      const row = matrix[r]
+      const rec = baseRecord({
+        sku: row[idx.sku], name: row[idx.name], description: row[idx.description],
+        price_dropship: row[idx.price_dropship], category_id: idx.category_id!=null? row[idx.category_id] : null,
+        image_url: row[idx.image_url], images: idx.images!=null? row[idx.images] : null,
+        otherImages: Array.from({length:10}, (_,i)=> idx['image'+(i+1)]!=null ? row[idx['image'+(i+1)]] : null)
+      })
+      if (rec.sku && rec.name) out.push(rec)
     }
-    return list
+    return out
   }
 
   function parseCSV(text) {
-    const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(l=>l.trim().length>0)
+    const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(Boolean)
     if (lines.length===0) return []
-    const header = splitCSVLine(lines[0]).map(h=>h.trim())
-    const required = ['sku','name','price_dropship']
-    for (const col of required) if (!header.includes(col)) throw new Error(`Відсутня колонка "${col}"`)
+    const header = splitCSVLine(lines[0]).map(s=>s.trim())
     const idx = Object.fromEntries(header.map((h,i)=>[h,i]))
-    const list = []
+    const need = ['sku','name','price_dropship']
+    for (const c of need) if (!(c in idx)) throw new Error(`Відсутня колонка "${c}"`)
+
+    const out = []
     for (let i=1;i<lines.length;i++) {
       const cols = splitCSVLine(lines[i])
-      if (cols.length===1 && cols[0].trim()==='') continue
-      const rec = {
-        sku: (cols[idx.sku]||'').trim(),
-        name: (cols[idx.name]||'').trim(),
-        description: (idx.description!=null ? (cols[idx.description]||'').trim() : ''),
-        price_dropship: Number(idx.price_dropship!=null ? cols[idx.price_dropship] : 0) || 0,
-        category_id: (idx.category_id!=null ? (cols[idx.category_id]===''?null:Number(cols[idx.category_id]||0)) : null),
-        image_url: (idx.image_url!=null ? (cols[idx.image_url]||'').trim() : ''),
-        active: (idx.active!=null ? String(cols[idx.active]||'true').toLowerCase()==='true' : true),
-      }
-      if (!rec.sku || !rec.name) continue
-      list.push(rec)
+      const rec = baseRecord({
+        sku: cols[idx.sku], name: cols[idx.name], description: idx.description!=null? cols[idx.description]: '',
+        price_dropship: idx.price_dropship!=null? cols[idx.price_dropship]: 0,
+        category_id: idx.category_id!=null? cols[idx.category_id]: null,
+        image_url: idx.image_url!=null? cols[idx.image_url]: '',
+        images: idx.images!=null? cols[idx.images]: '',
+        otherImages: Array.from({length:10}, (_,k)=> idx['image'+(k+1)]!=null? cols[idx['image'+(k+1)]]: null)
+      })
+      if (rec.sku && rec.name) out.push(rec)
     }
-    return list
+    return out
   }
 
-  function splitCSVLine(line) {
-    const out = []; let cur=''; let inQ=false
-    for (let i=0;i<line.length;i++){
-      const ch=line[i]
-      if (ch==='"'){ if(inQ && line[i+1]==='"'){cur+='"'; i++} else {inQ=!inQ} }
-      else if (ch===',' && !inQ){ out.push(cur); cur='' }
-      else cur+=ch
+  function baseRecord({sku, name, description, price_dropship, category_id, image_url, images, otherImages}) {
+    let gallery = []
+    const add = (v)=>{ const s=String(v||'').trim(); if(s) gallery.push(s) }
+    // images: строка з URL, розділена комою/пробілом/|/;
+    if (images) String(images).split(/[\s,;|]+/).forEach(add)
+    if (image_url) add(image_url)
+    if (Array.isArray(otherImages)) otherImages.forEach(add)
+    gallery = Array.from(new Set(gallery)) // унікальні
+    const main = gallery[0] || ''
+    return {
+      sku: String(sku||'').trim(),
+      name: String(name||'').trim(),
+      description: String(description||'').trim(),
+      price_dropship: Number(price_dropship||0) || 0,
+      category_id: category_id===''||category_id==null ? null : Number(category_id),
+      image_url: main,
+      gallery_json: gallery,
+      active: true,
     }
-    out.push(cur); return out
   }
+
+  function splitCSVLine(line){ const out=[]; let cur=''; let q=false; for(let i=0;i<line.length;i++){const ch=line[i]; if(ch==='"'){ if(q&&line[i+1]==='"'){cur+='"'; i++} else {q=!q} } else if(ch===','&&!q){ out.push(cur); cur=''} else cur+=ch } out.push(cur); return out }
 
   async function runImport() {
     if (rows.length===0) return
     setUploading(true); setError('')
     try {
-      const chunkSize = 300
-      for (let i=0;i<rows.length;i+=chunkSize){
-        const chunk = rows.slice(i,i+chunkSize)
-        const { error } = await supabase.from('products').upsert(chunk, { onConflict: 'sku' })
+      const chunk = 300
+      for (let i=0;i<rows.length;i+=chunk){
+        const part = rows.slice(i,i+chunk)
+        const { error } = await supabase.from('products').upsert(part, { onConflict: 'sku' })
         if (error) throw error
       }
-      alert('Імпортовано: ' + rows.length + ' записів ✅')
-    } catch (e) {
-      setError(e.message || 'Помилка імпорту')
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  function downloadTemplateCSV() {
-    const tpl = [
-      'sku,name,description,price_dropship,category_id,image_url,active',
-      'ABC-001,Приклад товару,Короткий опис,299.99,1,https://example.com/img.jpg,true'
-    ].join('\n')
-    const blob = new Blob([tpl], { type:'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download='products_template.csv'
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+      alert('Імпортовано: '+rows.length+' записів ✅')
+    } catch (e) { setError(e.message || 'Помилка імпорту') }
+    finally { setUploading(false) }
   }
 
   return (
@@ -137,48 +118,20 @@ export default function AdminImport() {
 
       <div className="card mb-4">
         <div className="card-body space-y-3">
-          <div className="text-sm text-muted">
-            Підтримка файлів .xlsx/.xls або .csv. Перший рядок — заголовок: <code>sku, name, description, price_dropship, category_id, image_url, active</code>. Унікальний ключ — <code>sku</code>.
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} />
-            <button className="btn-outline" onClick={downloadTemplateCSV}>Шаблон CSV</button>
-            <button className="btn-primary" onClick={runImport} disabled={rows.length===0 || uploading}>
-              {uploading ? 'Імпортую…' : `Імпортувати ${rows.length} записів`}
-            </button>
-          </div>
+          <div className="text-sm text-muted">Перший рядок — заголовок. Підтримуються колонки: <code>sku, name, description, price_dropship, category_id, image_url, images, image1..image10</code>. Перше фото стає головним.</div>
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} />
           {error && <div className="text-red-600 text-sm">{error}</div>}
+          <button className="btn-primary" onClick={runImport} disabled={rows.length===0 || uploading}>{uploading ? 'Імпортую…' : `Імпортувати ${rows.length} записів`}</button>
         </div>
       </div>
 
       {rows.length>0 && (
         <div className="card">
           <div className="card-body">
-            <div className="text-sm text-muted mb-2">Попередній перегляд (перші 50 рядків):</div>
             <div className="overflow-auto">
-              <table className="w-full text-sm border-separate border-spacing-y-2">
-                <thead>
-                  <tr className="text-left text-muted">
-                    <th className="pr-3">sku</th>
-                    <th className="pr-3">name</th>
-                    <th className="pr-3">price_dropship</th>
-                    <th className="pr-3">category_id</th>
-                    <th className="pr-3">image_url</th>
-                    <th className="pr-3">active</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.map((r,i)=>(
-                    <tr key={i}>
-                      <td className="pr-3 font-mono">{r.sku}</td>
-                      <td className="pr-3">{r.name}</td>
-                      <td className="pr-3">{r.price_dropship}</td>
-                      <td className="pr-3">{r.category_id ?? ''}</td>
-                      <td className="pr-3 truncate max-w-[280px]">{r.image_url ?? ''}</td>
-                      <td className="pr-3">{r.active ? 'true' : 'false'}</td>
-                    </tr>
-                  ))}
-                </tbody>
+              <table className="w-full text-sm">
+                <thead className="text-left text-muted"><tr><th className="pr-3">sku</th><th className="pr-3">name</th><th className="pr-3">price</th><th className="pr-3">#photos</th></tr></thead>
+                <tbody>{preview.map((r,i)=>(<tr key={i}><td className="pr-3 font-mono">{r.sku}</td><td className="pr-3">{r.name}</td><td className="pr-3">{r.price_dropship}</td><td className="pr-3">{(r.gallery_json||[]).length}</td></tr>))}</tbody>
               </table>
             </div>
           </div>

@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
 export default function AdminProducts() {
@@ -82,9 +82,11 @@ export default function AdminProducts() {
         for (const f of galleryFiles) uploaded.push(await uploadToStorage(f))
         gallery = [...gallery, ...uploaded]
       }
+      if (gallery.length > 0) image_url = gallery[0]
 
       const payload = {
-        sku: (form.sku||'').trim(), name: form.name,
+        sku: (form.sku||'').trim(),
+        name: form.name,
         description: form.description || null,
         category_id: form.category_id || null,
         price_dropship: Number(form.price_dropship),
@@ -180,14 +182,14 @@ export default function AdminProducts() {
                     <img src={form.image_url} alt="" className="w-full h-full object-contain" />
                   </div>
                 )}
-                <input className="input" type="file" accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
+                <input className="input" type="file" multiple accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
               </Field>
 
               <Field label="Галерея (можна кілька)">
                 {Array.isArray(form.gallery_json) && form.gallery_json.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-2">
                     {form.gallery_json.map((src, idx) => (
-                      <div key={idx} className="relative">
+                      <div key={idx} className="relative" draggable onDragStart={(e)=>e.dataTransfer.setData('text/plain', String(idx))} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault(); const from=Number(e.dataTransfer.getData('text/plain')); if(!Number.isNaN(from)&&from!==idx){ setForm(f=>{ const arr=[...(f.gallery_json||[])]; const [m]=arr.splice(from,1); arr.splice(idx,0,m); return {...f, gallery_json:arr};}); } }}>
                         <div className="w-[96px] h-[96px] overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
                           <img src={src} alt="" className="w-full h-full object-cover" />
                         </div>
@@ -196,11 +198,12 @@ export default function AdminProducts() {
                           <button className="btn-ghost input-xs" onClick={()=>moveGallery(idx,+1)}>↓</button>
                           <button className="btn-outline input-xs" onClick={()=>removeGalleryImage(idx)}>×</button>
                         </div>
+                        {idx===0 && <div className="absolute left-1 top-1 bg-black/60 text-white text-[11px] px-1 rounded">Головне</div>}
                       </div>
                     ))}
                   </div>
                 )}
-                <input className="input" type="file" accept="image/*" multiple onChange={e=>setGalleryFiles(Array.from(e.target.files || []))} />
+                <input className="input" type="file" multiple accept="image/*" multiple onChange={e=>setGalleryFiles(Array.from(e.target.files || []))} />
               </Field>
 
               <div className="flex gap-2">
@@ -243,7 +246,6 @@ export default function AdminProducts() {
                           {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
                         </div>
                         <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-muted">SKU: {p.sku || "—"}</div>
                       </div>
                     </td>
                     <td className="py-3 pr-3">{catLabel(p.category_id)}</td>
