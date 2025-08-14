@@ -4,6 +4,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
+/**
+ * Надійна верстка без горизонтального скролу:
+ * - головне фото: aspect-square + object-contain
+ * - мініатюри: внутрішній горизонтальний скрол (inline-flex), НЕ впливає на ширину сторінки
+ * - активна мініатюра автопрокручується у видиму область
+ * - заголовок переноситься й не розтягує контейнер
+ * - кнопки під ціною; опис нижче на всю ширину
+ */
 export default function Product() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -28,8 +36,8 @@ export default function Product() {
 
       if (!mounted) return
       if (!error && data) {
-        const gallery = Array.isArray(data.gallery_json) ? data.gallery_json : []
-        const photos = [data.image_url, ...gallery].filter(Boolean)
+        const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
+        const photos = [data.image_url, ...g].filter(Boolean)
         const uniq = Array.from(new Set(photos))
         setProduct({ ...data, _photos: uniq })
         setImgIndex(0)
@@ -42,10 +50,10 @@ export default function Product() {
 
   const photos = useMemo(() => product?._photos || [], [product])
 
-  // keep active thumb in view (scroll only inside its own strip)
+  // автопрокрутка активної мініатюри
   useEffect(() => {
-    if (!thumbsRef.current) return
     const c = thumbsRef.current
+    if (!c) return
     const item = c.querySelector(`[data-idx="${imgIndex}"]`)
     if (!item) return
     const left = item.offsetLeft
@@ -57,7 +65,6 @@ export default function Product() {
   }, [imgIndex])
 
   if (loading) return <div className="container-page py-6">Завантаження…</div>
-
   if (!product) {
     return (
       <div className="container-page py-6">
@@ -71,7 +78,7 @@ export default function Product() {
   const addOne = () => addItem?.(product, 1, product.price_dropship)
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
 
-  function goTo(n){
+  const goTo = (n) => {
     if (!photos.length) return
     const next = (n + photos.length) % photos.length
     setImgIndex(next)
@@ -79,8 +86,8 @@ export default function Product() {
   const prevImg = () => goTo(imgIndex - 1)
   const nextImg = () => goTo(imgIndex + 1)
 
-  function onTouchStart(e){ startXRef.current = e.touches?.[0]?.clientX ?? null }
-  function onTouchEnd(e){
+  const onTouchStart = (e) => { startXRef.current = e.touches?.[0]?.clientX ?? null }
+  const onTouchEnd = (e) => {
     const sx = startXRef.current
     if (sx == null) return
     const ex = e.changedTouches?.[0]?.clientX ?? sx
@@ -100,7 +107,7 @@ export default function Product() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
-        {/* PHOTO */}
+        {/* Фото */}
         <div className="card w-full">
           <div className="card-body">
             <div
@@ -120,40 +127,45 @@ export default function Product() {
                     type="button"
                     aria-label="Попереднє фото"
                     onClick={prevImg}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
                   >‹</button>
                   <button
                     type="button"
                     aria-label="Наступне фото"
                     onClick={nextImg}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center"
                   >›</button>
                 </>
               )}
             </div>
 
-            {/* THUMBS — внутрішній скрол, не впливає на ширину сторінки */}
+            {/* Мініатюри: внутрішній скрол, без впливу на ширину */}
             {photos.length > 1 && (
-              <div className="mt-3 w-full max-w-full overflow-x-auto pb-1" ref={thumbsRef}>
-                <div className="inline-flex gap-3">
-                  {photos.map((src, i) => (
-                    <button
-                      key={i}
-                      data-idx={i}
-                      className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
-                      onClick={() => goTo(i)}
-                      title={`Фото ${i+1}`}
-                    >
-                      <img src={src} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
+              <div className="mt-3 w-full">
+                <div
+                  ref={thumbsRef}
+                  className="w-full max-w-full overflow-x-auto overscroll-contain pb-1"
+                >
+                  <div className="inline-flex gap-3">
+                    {photos.map((src, i) => (
+                      <button
+                        key={i}
+                        data-idx={i}
+                        className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
+                        onClick={() => goTo(i)}
+                        title={`Фото ${i+1}`}
+                      >
+                        <img src={src} alt="" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* INFO */}
+        {/* Інформація */}
         <div className="w-full min-w-0">
           <h1 className="text-[22px] sm:text-3xl font-bold leading-tight mb-2 break-words">
             {product.name}
@@ -181,6 +193,7 @@ export default function Product() {
             <div className="text-2xl font-semibold mb-4">{Number(product.price_dropship).toFixed(2)} ₴</div>
           )}
 
+          {/* Кнопки */}
           <div className="flex flex-col sm:flex-row gap-3">
             <button
               type="button"
@@ -202,7 +215,7 @@ export default function Product() {
         </div>
       </div>
 
-      {/* DESCRIPTION */}
+      {/* Опис */}
       <div className="mt-8 card">
         <div className="card-body">
           <div
