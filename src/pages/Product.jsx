@@ -55,11 +55,11 @@ export default function Product() {
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
 
   return (
-    <div className="container-page py-6">
+    <div className="container-page py-6 overflow-x-hidden">
       {/* Верхній блок: фото + коротка інформація */}
       <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
         {/* ФОТО */}
-        <div className="card">
+        <div className="card w-full">
           <div className="card-body">
             <div className="w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
               {photos[imgIndex] ? (
@@ -70,11 +70,11 @@ export default function Product() {
             </div>
 
             {photos.length > 1 && (
-              <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+              <div className="mt-3 -mx-2 px-2 flex gap-3 overflow-x-auto pb-1">
                 {photos.map((src, i) => (
                   <button
                     key={i}
-                    className={`w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
+                    className={`w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border flex-none ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
                     onClick={() => setImgIndex(i)}
                     title={`Фото ${i+1}`}
                   >
@@ -87,8 +87,10 @@ export default function Product() {
         </div>
 
         {/* ІНФО */}
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold leading-tight mb-2">{product.name}</h1>
+        <div className="w-full min-w-0">
+          <h1 className="text-[22px] sm:text-3xl font-bold leading-tight mb-2 break-words">
+            {product.name}
+          </h1>
 
           {product.sku && (
             <div className="text-sm text-muted mb-2">
@@ -132,7 +134,6 @@ export default function Product() {
             </button>
           </div>
 
-          {/* Посилання назад (опціонально залишимо тут) */}
           <div className="mt-6 sm:mt-8">
             <Link to="/" className="btn-outline">← До каталогу</Link>
           </div>
@@ -143,7 +144,7 @@ export default function Product() {
       <div className="mt-8 card">
         <div className="card-body">
           <div
-            className="prose max-w-none"
+            className="prose max-w-none break-words"
             dangerouslySetInnerHTML={{ __html: product.description || '' }}
           />
         </div>
