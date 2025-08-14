@@ -25,7 +25,6 @@ export default function Product() {
 
       if (!mounted) return
       if (!error && data) {
-        // зберемо фінальний масив фото: головне + галерея (без дублів)
         const gallery = Array.isArray(data.gallery_json) ? data.gallery_json : []
         const photos = [data.image_url, ...gallery].filter(Boolean)
         const uniq = Array.from(new Set(photos))
@@ -57,8 +56,9 @@ export default function Product() {
 
   return (
     <div className="container-page py-6">
-      <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
-        {/* Фото + мініатюри */}
+      {/* Верхній блок: фото + коротка інформація */}
+      <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
+        {/* ФОТО */}
         <div className="card">
           <div className="card-body">
             <div className="w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
@@ -74,7 +74,7 @@ export default function Product() {
                 {photos.map((src, i) => (
                   <button
                     key={i}
-                    className={`w-24 h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
+                    className={`w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
                     onClick={() => setImgIndex(i)}
                     title={`Фото ${i+1}`}
                   >
@@ -86,9 +86,10 @@ export default function Product() {
           </div>
         </div>
 
-        {/* Інформація */}
+        {/* ІНФО */}
         <div>
-          <h1 className="h1 mb-2">{product.name}</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold leading-tight mb-2">{product.name}</h1>
+
           {product.sku && (
             <div className="text-sm text-muted mb-2">
               Артикул: <b>{product.sku}</b>
@@ -111,14 +112,8 @@ export default function Product() {
             <div className="text-2xl font-semibold mb-4">{Number(product.price_dropship).toFixed(2)} ₴</div>
           )}
 
-          {/* ОПИС — рендеримо як HTML */}
-          <div
-            className="prose max-w-none"
-            dangerouslySetInnerHTML={{ __html: product.description || '' }}
-          />
-
-          {/* Дії */}
-          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+          {/* КНОПКИ під ціною */}
+          <div className="flex flex-col sm:flex-row gap-3">
             <button
               type="button"
               onClick={addOne}
@@ -137,9 +132,20 @@ export default function Product() {
             </button>
           </div>
 
-          <div className="mt-6">
+          {/* Посилання назад (опціонально залишимо тут) */}
+          <div className="mt-6 sm:mt-8">
             <Link to="/" className="btn-outline">← До каталогу</Link>
           </div>
+        </div>
+      </div>
+
+      {/* НИЖНІЙ БЛОК: Опис — на всю ширину */}
+      <div className="mt-8 card">
+        <div className="card-body">
+          <div
+            className="prose max-w-none"
+            dangerouslySetInnerHTML={{ __html: product.description || '' }}
+          />
         </div>
       </div>
     </div>
