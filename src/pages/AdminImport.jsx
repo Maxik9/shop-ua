@@ -94,14 +94,27 @@ export default function AdminImport() {
 
   function splitCSVLine(line){ const out=[]; let cur=''; let q=false; for(let i=0;i<line.length;i++){const ch=line[i]; if(ch==='"'){ if(q&&line[i+1]==='"'){cur+='"'; i++} else {q=!q} } else if(ch===','&&!q){ out.push(cur); cur=''} else cur+=ch } out.push(cur); return out }
 
-  async function runImport() {
+  function sanitizeForUpsert(list){
+      return list.map(r => ({
+        sku: r.sku,
+        name: r.name,
+        description: r.description ?? '',
+        price_dropship: Number(r.price_dropship || 0) || 0,
+        category_id: r.category_id === '' || r.category_id == null ? null : Number(r.category_id),
+        image_url: r.image_url || '',
+        gallery_json: Array.isArray(r.gallery_json) ? r.gallery_json : [],
+        in_stock: r.in_stock == null ? true : !!r.in_stock
+      }))
+    }
+    async function runImport() {
     if (rows.length===0) return
     setUploading(true); setError('')
     try {
       const chunk = 300
       for (let i=0;i<rows.length;i+=chunk){
         const part = rows.slice(i,i+chunk)
-        const { error } = await supabase.from('products').upsert(part, { onConflict: 'sku' })
+        const payload = sanitizeForUpsert(part)
+        const { error } = await supabase.from('products').upsert(payload, { onConflict: 'sku' })
         if (error) throw error
       }
       alert('Імпортовано: '+rows.length+' записів ✅')

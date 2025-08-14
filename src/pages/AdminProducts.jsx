@@ -1,54 +1,6 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-
-
-// --- Lightweight HTML editor: Visual / HTML / Preview ---
-function HtmlEditor({ value, onChange }) {
-  const [tab, setTab] = useState('visual'); // 'visual' | 'html' | 'preview'
-  const visualRef = useRef(null);
-
-  useEffect(() => {
-    if (tab === 'visual' && visualRef.current) {
-      visualRef.current.innerHTML = value || '';
-    }
-  }, [tab, value]);
-
-  function onVisualInput(e) { onChange(e.currentTarget.innerHTML); }
-
-  return (
-    <div>
-      <div className="flex gap-2 mb-2 text-sm">
-        <button type="button" className={`btn-outline ${tab==='visual'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('visual')}>Візуально</button>
-        <button type="button" className={`btn-outline ${tab==='html'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('html')}>HTML</button>
-        <button type="button" className={`btn-outline ${tab==='preview'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('preview')}>Перегляд</button>
-      </div>
-
-      {tab==='visual' && (
-        <div
-          ref={visualRef}
-          className="input min-h-[180px] prose prose-sm max-w-none focus:outline-none"
-          contentEditable
-          onInput={onVisualInput}
-          suppressContentEditableWarning
-        />
-      )}
-
-      {tab==='html' && (
-        <textarea
-          className="input min-h-[180px] font-mono text-sm"
-          value={value || ''}
-          onChange={e=>onChange(e.target.value)}
-        />
-      )}
-
-      {tab==='preview' && (
-        <div className="prose max-w-none p-3 rounded-xl bg-slate-50 border border-slate-200"
-             dangerouslySetInnerHTML={{__html: value || ''}} />
-      )}
-    </div>
-  );
-}
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([])
@@ -59,7 +11,7 @@ export default function AdminProducts() {
 
   const emptyForm = {
     id: null, sku:'', name:'', description:'', category_id:null,
-    price_dropship:'', image_url:'', gallery_json:[]
+    price_dropship:'', image_url:'', gallery_json:[], in_stock:true
   }
   const [form, setForm] = useState(emptyForm)
     const [galleryFiles, setGalleryFiles] = useState([])
@@ -99,7 +51,7 @@ export default function AdminProducts() {
   }
   function startEdit(p) {
     setForm({
-      id: p.id, sku: p.sku || '', name: p.name || '', description: p.description || '',
+      id: p.id, sku: p.sku || '', name: p.name || '', description: p.description || '', in_stock: (p.in_stock ?? true),
       category_id: p.category_id || null, price_dropship: p.price_dropship ?? '',
       image_url: p.image_url || '', gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : []
     })
@@ -133,6 +85,7 @@ export default function AdminProducts() {
       const payload = {
         sku: (form.sku||'').trim(),
         name: form.name,
+        in_stock: !!form.in_stock,
         description: form.description || null,
         category_id: form.category_id || null,
         price_dropship: Number(form.price_dropship),
@@ -216,9 +169,17 @@ export default function AdminProducts() {
                        onChange={e=>setForm({...form, price_dropship:e.target.value})} placeholder="0" />
               </Field>
 
+              <Field label="Наявність">
+                <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="accent-indigo-600" checked={!!form.in_stock} onChange={e=>setForm(f=>({...f, in_stock: e.target.checked}))} />
+                  <span>{form.in_stock ? "В наявності" : "Немає в наявності"}</span>
+                </label>
+              </Field>
+
               <Field label="Опис">
-              <HtmlEditor value={form.description} onChange={val=>setForm(f=>({...f, description: val}))} />
-            </Field>
+                <textarea className="input" rows={6} value={form.description}
+                          onChange={e=>setForm({...form, description:e.target.value})} placeholder="Опис товару"></textarea>
+              </Field>
             </div>
 
             <div className="space-y-4">

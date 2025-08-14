@@ -20,6 +20,11 @@ export default function Product() {
   return (
     <div className="container-page py-6">
       <h1 className="h1 mb-1">{product.name}</h1>
+      <div className="mb-3">{product.in_stock ? (
+        <span className="inline-flex items-center px-2 py-[2px] rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">В наявності</span>
+      ) : (
+        <span className="inline-flex items-center px-2 py-[2px] rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">Немає в наявності</span>
+      )}</div>
       {product.sku && <div className="text-sm text-muted mb-4">Артикул: <b>{product.sku}</b></div>}
 
       {product.image_url && (
