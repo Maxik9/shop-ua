@@ -4,6 +4,7 @@ import { supabase } from './supabaseClient'
 import NavBar from './components/NavBar'
 import Search from './pages/Search'
 import AdminImport from './pages/AdminImport'
+import AdminHtmlEditor from './pages/AdminHtmlEditor'
 
 // публичные страницы
 import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/admin/orders" element={<PrivateRoute><AdminOrders /></PrivateRoute>} />
         <Route path="/admin/products" element={<PrivateRoute><AdminProducts /></PrivateRoute>} />
         <Route path="/admin/categories" element={<PrivateRoute><AdminCategories /></PrivateRoute>} />
+        <Route path="/admin/html-editor" element={<PrivateRoute><AdminHtmlEditor /></PrivateRoute>} />
 
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
