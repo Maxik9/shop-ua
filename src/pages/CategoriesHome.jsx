@@ -26,11 +26,13 @@ export default function CategoriesHome() {
       {loading && <div className="text-muted">Завантаження…</div>}
       {!loading && cats.length === 0 && <div className="text-muted">Немає категорій.</div>}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* 2 колонки на мобільному → 3 на sm → 4 на lg */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {cats.map(c => (
           <Link key={c.id} to={`/category/${c.id}`} className="card hover:shadow-md transition">
             <div className="card-body">
-              <div className="aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden mb-3">
+              {/* квадратне превʼю */}
+              <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden mb-3">
                 {c.image_url && <img src={c.image_url} alt="" className="w-full h-full object-cover" />}
               </div>
               <div className="font-medium">{c.name}</div>

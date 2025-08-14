@@ -6,6 +6,7 @@ import { useCart } from '../context/CartContext'
 export default function NavBar() {
   const [user, setUser] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [open, setOpen] = useState(false)           // ⬅️ бургер
   const { count } = useCart()
 
   useEffect(() => {
@@ -30,22 +31,40 @@ export default function NavBar() {
     return () => unsub()
   }, [])
 
-  async function logout(){ await supabase.auth.signOut() }
+  async function logout(){ await supabase.auth.signOut(); setOpen(false) }
+
+  const NavLinks = ({onClick}) => (
+    <>
+      <Link to="/" onClick={onClick} className="hover:text-indigo-600">Каталог</Link>
+      {user && <Link to="/dashboard" onClick={onClick} className="hover:text-indigo-600">Мої замовлення</Link>}
+      {isAdmin && <Link to="/admin" onClick={onClick} className="hover:text-indigo-600">Адмін</Link>}
+      <Link to="/about" onClick={onClick} className="hover:text-indigo-600">Про нас</Link>
+      <Link to="/contacts" onClick={onClick} className="hover:text-indigo-600">Контакти</Link>
+    </>
+  )
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-3 h-14 flex items-center gap-4">
+      <div className="max-w-6xl mx-auto px-3 h-14 flex items-center gap-3">
+        {/* Бургер (мобільний) */}
+        <button
+          className="md:hidden w-9 h-9 rounded-lg border border-slate-300 flex items-center justify-center"
+          onClick={() => setOpen(v => !v)}
+          aria-label="Меню"
+        >
+          <div className="w-4 h-0.5 bg-slate-700 mb-1" />
+          <div className="w-4 h-0.5 bg-slate-700 mb-1" />
+          <div className="w-4 h-0.5 bg-slate-700" />
+        </button>
+
         <Link to="/" className="font-semibold text-indigo-600">Drop-UA</Link>
 
-        <nav className="flex items-center gap-4 text-sm">
-          <Link to="/" className="hover:text-indigo-600">Каталог</Link>
-          {user && <Link to="/dashboard" className="hover:text-indigo-600">Мої замовлення</Link>}
-          {isAdmin && <Link to="/admin" className="hover:text-indigo-600">Адмін</Link>}
-          <Link to="/about" className="hover:text-indigo-600">Про нас</Link>
-          <Link to="/contacts" className="hover:text-indigo-600">Контакти</Link>
+        {/* Десктоп-меню */}
+        <nav className="hidden md:flex items-center gap-4 text-sm">
+          <NavLinks />
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2">
           <Link to="/cart" className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-300 hover:bg-slate-50" title="Кошик">
             🛒
             {count > 0 && (
@@ -55,16 +74,25 @@ export default function NavBar() {
             )}
           </Link>
           {user ? (
-            <button onClick={logout} className="h-9 px-4 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50">
+            <button onClick={logout} className="h-9 px-3 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50">
               Вийти
             </button>
           ) : (
-            <Link to="/login" className="h-9 px-4 text-sm inline-flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+            <Link to="/login" className="h-9 px-3 text-sm inline-flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
               Вхід / Реєстрація
             </Link>
           )}
         </div>
       </div>
+
+      {/* Дропдаун бургер-меню (мобільний) */}
+      {open && (
+        <div className="md:hidden border-t border-slate-200 bg-white">
+          <div className="max-w-6xl mx-auto px-3 py-3 flex flex-col gap-3 text-sm">
+            <NavLinks onClick={() => setOpen(false)} />
+          </div>
+        </div>
+      )}
     </header>
   )
 }
