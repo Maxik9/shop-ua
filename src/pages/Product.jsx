@@ -1,126 +1,37 @@
-// src/pages/Product.jsx
+// src/pages/Product.jsx — renders HTML description
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-import { useCart } from '../context/CartContext'
 
 export default function Product() {
   const { id } = useParams()
-  const navigate = useNavigate()
-  const { addItem } = useCart()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [product, setProduct] = useState(null)
-  const [gallery, setGallery] = useState([])
-  const [idx, setIdx] = useState(0)
 
-  useEffect(() => {
+  useEffect(()=>{
     let mounted = true
-    ;(async () => {
-      try {
-        setLoading(true); setError('')
-        const { data, error } = await supabase
-          .from('products')
-          .select('id,name,description,price_dropship,image_url,gallery_json')
-          .eq('id', id)
-          .maybeSingle()
-        if (error) throw error
-        if (!data) throw new Error('Товар не знайдено')
-
-        let g = []
-        const raw = data.gallery_json
-        if (Array.isArray(raw)) g = raw
-        else if (typeof raw === 'string' && raw.trim()) {
-          try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) g = parsed } catch {}
-        }
-        const full = [data.image_url, ...g].filter(Boolean)
-        const uniq = Array.from(new Set(full))
-        if (mounted) { setProduct(data); setGallery(uniq); setIdx(0) }
-      } catch (e) {
-        if (mounted) setError(e.message || 'Помилка завантаження')
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    })()
-    return () => { mounted = false }
+    supabase.from('products').select('*').eq('id', id).single().then(({ data })=>{
+      if (mounted) setProduct(data)
+    })
+    return ()=>{mounted=false}
   }, [id])
 
-  if (loading) return <div className="container-page my-6">Завантаження…</div>
-  if (error) return (
-    <div className="container-page my-6">
-      <div className="card">
-        <div className="card-body">
-          <div className="h2 mb-2">Помилка</div>
-          <p className="text-muted mb-4">{error}</p>
-          <Link to="/" className="btn-outline">Повернутися до каталогу</Link>
-        </div>
-      </div>
-    </div>
-  )
-  if (!product) return <div className="container-page my-6 text-muted">Товар не знайдено.</div>
-
-  const cur = gallery[idx] || product.image_url
-  const addOne = () => addItem(product, 1, product.price_dropship)
-  const buyNow = () => { addItem(product, 1, product.price_dropship); navigate('/cart') }
-
-  function prev() { if (gallery.length) setIdx(v => (v - 1 + gallery.length) % gallery.length) }
-  function next() { if (gallery.length) setIdx(v => (v + 1) % gallery.length) }
+  if (!product) return <div className="container-page py-6">Завантаження…</div>
 
   return (
-    <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
-      <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
-        {/* Галерея (на мобільному — 4:3, object-contain) */}
-        <div className="relative">
-          <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-50">
-            <div className="w-full aspect-[4/3]">
-              {cur && <img src={cur} alt={product.name} className="w-full h-full object-contain" />}
-            </div>
-          </div>
+    <div className="container-page py-6">
+      <h1 className="h1 mb-1">{product.name}</h1>
+      {product.sku && <div className="text-sm text-muted mb-4">Артикул: <b>{product.sku}</b></div>}
 
-          {gallery.length > 1 && (
-            <>
-              <button className="btn-ghost absolute left-[-10px] top-1/2 -translate-y-1/2" onClick={prev}>‹</button>
-              <button className="btn-ghost absolute right-[-10px] top-1/2 -translate-y-1/2" onClick={next}>›</button>
-            </>
-          )}
-
-          {gallery.length > 1 && (
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
-              {gallery.map((src, i) => (
-                <button
-                  key={src + i}
-                  onClick={() => setIdx(i)}
-                  className={`shrink-0 overflow-hidden rounded-xl border ${idx===i ? 'border-indigo-500' : 'border-slate-200'}`}
-                  style={{ width: 92, height: 92, background:'#f1f5f9' }}
-                >
-                  <img src={src} alt="" className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
+      {product.image_url && (
+        <div className="mb-4 w-full max-w-xl aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
+          <img src={product.image_url} alt="" className="w-full h-full object-contain" />
         </div>
+      )}
 
-        {/* Інфо */}
-        <div>
-          <h1 className="h1 mb-2">{product.name}</h1>
-          {product.description && (
-            <p className="text-[15px] sm:text-[16px] leading-7 text-slate-700 mb-4 whitespace-pre-wrap">
-              {product.description}
-            </p>
-          )}
+      <div className="prose max-w-none" dangerouslySetInnerHTML={{__html: product.description || ''}} />
 
-          <div className="text-[17px] sm:text-[18px] mb-5">
-            Дроп-ціна:&nbsp;
-            <span className="price text-[20px] sm:text-[22px]">
-              {Number(product.price_dropship).toFixed(2)} ₴
-            </span>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button className="btn-outline w-full sm:w-auto" onClick={addOne}>Додати в кошик</button>
-            <button className="btn-primary w-full sm:w-auto" onClick={buyNow}>Замовити</button>
-          </div>
-        </div>
+      <div className="mt-6">
+        <Link to="/" className="btn-outline">← До каталогу</Link>
       </div>
     </div>
   )

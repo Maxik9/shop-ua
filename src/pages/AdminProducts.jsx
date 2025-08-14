@@ -1,6 +1,54 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+
+
+// --- Lightweight HTML editor: Visual / HTML / Preview ---
+function HtmlEditor({ value, onChange }) {
+  const [tab, setTab] = useState('visual'); // 'visual' | 'html' | 'preview'
+  const visualRef = useRef(null);
+
+  useEffect(() => {
+    if (tab === 'visual' && visualRef.current) {
+      visualRef.current.innerHTML = value || '';
+    }
+  }, [tab, value]);
+
+  function onVisualInput(e) { onChange(e.currentTarget.innerHTML); }
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-2 text-sm">
+        <button type="button" className={`btn-outline ${tab==='visual'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('visual')}>Візуально</button>
+        <button type="button" className={`btn-outline ${tab==='html'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('html')}>HTML</button>
+        <button type="button" className={`btn-outline ${tab==='preview'?'!bg-indigo-50 !border-indigo-200':''}`} onClick={()=>setTab('preview')}>Перегляд</button>
+      </div>
+
+      {tab==='visual' && (
+        <div
+          ref={visualRef}
+          className="input min-h-[180px] prose prose-sm max-w-none focus:outline-none"
+          contentEditable
+          onInput={onVisualInput}
+          suppressContentEditableWarning
+        />
+      )}
+
+      {tab==='html' && (
+        <textarea
+          className="input min-h-[180px] font-mono text-sm"
+          value={value || ''}
+          onChange={e=>onChange(e.target.value)}
+        />
+      )}
+
+      {tab==='preview' && (
+        <div className="prose max-w-none p-3 rounded-xl bg-slate-50 border border-slate-200"
+             dangerouslySetInnerHTML={{__html: value || ''}} />
+      )}
+    </div>
+  );
+}
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([])
@@ -169,9 +217,8 @@ export default function AdminProducts() {
               </Field>
 
               <Field label="Опис">
-                <textarea className="input" rows={6} value={form.description}
-                          onChange={e=>setForm({...form, description:e.target.value})} placeholder="Опис товару"></textarea>
-              </Field>
+              <HtmlEditor value={form.description} onChange={val=>setForm(f=>({...f, description: val}))} />
+            </Field>
             </div>
 
             <div className="space-y-4">
