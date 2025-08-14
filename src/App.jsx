@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import NavBar from './components/NavBar'
+import Search from './pages/Search'
 
 // публичные страницы
 import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
@@ -61,6 +62,7 @@ export default function App() {
 
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
+        <Route path="/search" element={<Search />} />
       </Routes>
     </>
   )
