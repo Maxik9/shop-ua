@@ -13,6 +13,11 @@ import Cart from './pages/Cart'
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { CartProvider } from './context/CartContext'
+import Admin from './pages/Admin'
+import AdminProducts from './pages/AdminProducts'
+import AdminCategories from './pages/AdminCategories'
+import CategoriesHome from './pages/CategoriesHome'
+import CategoryPage from './pages/CategoryPage'
 
 // НОВЕ:
 import CategoriesHome from './pages/CategoriesHome'
@@ -58,6 +63,17 @@ export default function App() {
 
         <Route path="/catalog" element={<Navigate to="/categories" />} />
         <Route path="*" element={<Navigate to="/" />} />
+        {/* Головна – показує категорії */}
+  <Route path="/" element={<CategoriesHome />} />
+
+  {/* Перегляд однієї категорії (товари + підкатегорії) */}
+  <Route path="/category/:id" element={<CategoryPage />} />
+
+  {/* Адмін */}
+  <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
+  <Route path="/admin/products" element={<PrivateRoute><AdminProducts /></PrivateRoute>} />
+  <Route path="/admin/categories" element={<PrivateRoute><AdminCategories /></PrivateRoute>} />
+
       </Routes>
     </CartProvider>
   )
