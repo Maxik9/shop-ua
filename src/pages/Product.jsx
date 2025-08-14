@@ -1,9 +1,16 @@
-// src/pages/Product.jsx
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
+/**
+ * SAFE MODE: мінімум хуків і логіки — щоб гарантовано позбутися React #310.
+ * - завантаження товару через .single() (сумісно з supabase-js v1)
+ * - фото з простими стрілками та свайпом
+ * - кнопки "Додати в кошик / Замовити"
+ * - опис рендериться як HTML
+ * Немає лайтбоксу/зуму/автопрокруток, щоб не було умовних хуків.
+ */
 export default function Product() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -14,65 +21,78 @@ export default function Product() {
   const [error, setError] = useState('')
   const [imgIndex, setImgIndex] = useState(0)
 
-  // refs для свайпу (картка) та автоскролу мініатюр
-  const startXRef = useRef(null)
-  const thumbsRef = useRef(null)
-
-  // Лайтбокс
-  const [lightboxOpen, setLightboxOpen] = useState(false)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const dragRef = useRef({ dragging: false, sx: 0, sy: 0, px: 0, py: 0 })
-  const lbSwipeStartRef = useRef(null)
+  // для свайпу в блоці фото
+  const touchStartX = useRef(null)
 
   useEffect(() => {
-    let mounted = true
+    let alive = true
     async function load() {
-      setLoading(true); setError(''); setProduct(null)
+      setLoading(true)
+      setError('')
+      setProduct(null)
+      setImgIndex(0)
       try {
-        // ТІЛЬКИ .single() — стабільно для supabase-js v1
         const { data, error } = await supabase
           .from('products')
           .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
           .eq('id', id)
           .single()
 
-        if (error) setError(error.message || 'Помилка завантаження')
-        if (data && mounted) {
-          const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
-          const photos = [data.image_url, ...g].filter(Boolean)
-          const uniq = Array.from(new Set(photos))
-          setProduct({ ...data, _photos: uniq })
-          setImgIndex(0)
+        if (error) {
+          // якщо сторінка побудована по sku як id — можна розкоментувати цей блок і спробувати фолбек
+          // const bySku = await supabase
+          //   .from('products')
+          //   .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
+          //   .eq('sku', id)
+          //   .single()
+          // if (!bySku.error && bySku.data) { if (alive) setProduct(normalize(bySku.data)) }
+          // else setError(error.message || 'Помилка завантаження')
+          setError(error.message || 'Помилка завантаження')
+        } else if (data) {
+          if (alive) setProduct(normalize(data))
+        } else {
+          setError('Товар не знайдено')
         }
-        if (!data && !error) setError('Товар не знайдено')
       } catch (e) {
         setError(e.message || 'Непередбачена помилка')
       } finally {
-        if (mounted) setLoading(false)
+        if (alive) setLoading(false)
       }
     }
     load()
-    return () => { mounted = false }
+    return () => { alive = false }
   }, [id])
 
   const photos = useMemo(() => product?._photos || [], [product])
 
-  // Тримати активну мініатюру у видимості
-  useEffect(() => {
-    const c = thumbsRef.current
-    if (!c) return
-    const item = c.querySelector(`[data-idx="${imgIndex}"]`)
-    if (!item) return
-    const left = item.offsetLeft
-    const right = left + item.offsetWidth
-    const viewL = c.scrollLeft
-    const viewR = viewL + c.clientWidth
-    if (left < viewL) c.scrollTo({ left: left - 8, behavior: 'smooth' })
-    else if (right > viewR) c.scrollTo({ left: right - c.clientWidth + 8, behavior: 'smooth' })
-  }, [imgIndex])
+  function normalize(row) {
+    const g = Array.isArray(row.gallery_json) ? row.gallery_json : []
+    const uniq = Array.from(new Set([row.image_url, ...g].filter(Boolean)))
+    return { ...row, _photos: uniq }
+  }
 
-  // --- РЕНДЕР СТАНІВ ---
+  // керування фото
+  function goTo(n) {
+    if (!photos.length) return
+    const next = (n + photos.length) % photos.length
+    setImgIndex(next)
+  }
+  const prev = () => goTo(imgIndex - 1)
+  const next = () => goTo(imgIndex + 1)
+
+  // свайп
+  const onTouchStart = (e) => { touchStartX.current = e.touches?.[0]?.clientX ?? null }
+  const onTouchEnd = (e) => {
+    const sx = touchStartX.current
+    if (sx == null) return
+    const ex = e.changedTouches?.[0]?.clientX ?? sx
+    const dx = ex - sx
+    if (dx > 40) prev()
+    else if (dx < -40) next()
+    touchStartX.current = null
+  }
+
+  // рендер станів
   if (loading) return <div className="container-page py-6">Завантаження…</div>
   if (error) {
     return (
@@ -91,95 +111,9 @@ export default function Product() {
     )
   }
 
-  // --- ЛОГІКА ---
   const canBuy = !!product.in_stock
   const addOne = () => addItem?.(product, 1, product.price_dropship)
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
-
-  const goTo = (n) => {
-    if (!photos.length) return
-    const next = (n + photos.length) % photos.length
-    setImgIndex(next)
-  }
-  const prevImg = () => goTo(imgIndex - 1)
-  const nextImg = () => goTo(imgIndex + 1)
-
-  // свайп у картці
-  const onTouchStart = (e) => { startXRef.current = e.touches?.[0]?.clientX ?? null }
-  const onTouchEnd = (e) => {
-    const sx = startXRef.current
-    if (sx == null) return
-    const ex = e.changedTouches?.[0]?.clientX ?? sx
-    const dx = ex - sx
-    if (dx > 40) prevImg()
-    else if (dx < -40) nextImg()
-    startXRef.current = null
-  }
-
-  // Лайтбокс керування
-  function openLightbox(){ setLightboxOpen(true); setZoom(1); setPan({ x: 0, y: 0 }) }
-  function zoomIn(){ setZoom(z => Math.min(4, +(z + 0.25).toFixed(2))) }
-  function zoomOut(){ setZoom(z => Math.max(1, +(z - 0.25).toFixed(2))) }
-  function resetZoom(){ setZoom(1); setPan({ x: 0, y: 0 }) }
-
-  function onWheel(e){
-    e.preventDefault()
-    const delta = e.deltaY < 0 ? 0.25 : -0.25
-    setZoom(z => Math.min(4, Math.max(1, +(z + delta).toFixed(2))))
-  }
-
-  // панорамування тільки при zoom > 1
-  function onDragStart(e){
-    if (zoom <= 1) return
-    e.preventDefault()
-    dragRef.current = { dragging: true, sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y }
-  }
-  function onDragMove(e){
-    if (!dragRef.current.dragging) return
-    const dx = e.clientX - dragRef.current.sx
-    const dy = e.clientY - dragRef.current.sy
-    setPan({ x: dragRef.current.px + dx, y: dragRef.current.py + dy })
-  }
-  function onDragEnd(){ dragRef.current.dragging = false }
-
-  // touch-drag у лайтбоксі + свайп між фото при zoom=1
-  function onTouchDragStart(e){
-    if (zoom <= 1) { lbSwipeStartRef.current = e.touches?.[0]?.clientX ?? null; return }
-    if (e.touches.length !== 1) return
-    dragRef.current = { dragging: true, sx: e.touches[0].clientX, sy: e.touches[0].clientY, px: pan.x, py: pan.y }
-  }
-  function onTouchDragMove(e){
-    if (zoom <= 1) return
-    if (!dragRef.current.dragging || e.touches.length !== 1) return
-    const dx = e.touches[0].clientX - dragRef.current.sx
-    const dy = e.touches[0].clientY - dragRef.current.sy
-    setPan({ x: dragRef.current.px + dx, y: dragRef.current.py + dy })
-  }
-  function onTouchDragEnd(e){
-    if (zoom <= 1) {
-      const sx = lbSwipeStartRef.current
-      if (sx != null) {
-        const ex = e.changedTouches?.[0]?.clientX ?? sx
-        const dx = ex - sx
-        if (dx > 50) prevImg()
-        else if (dx < -50) nextImg()
-      }
-    }
-    dragRef.current.dragging = false
-    lbSwipeStartRef.current = null
-  }
-
-  // esc + стрілки в лайтбоксі
-  useEffect(() => {
-    function onKey(e){
-      if (!lightboxOpen) return
-      if (e.key === 'Escape') setLightboxOpen(false)
-      else if (e.key === 'ArrowLeft') prevImg()
-      else if (e.key === 'ArrowRight') nextImg()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [lightboxOpen, imgIndex, photos.length])
 
   return (
     <div className="container-page py-4 sm:py-6 overflow-x-hidden">
@@ -198,14 +132,12 @@ export default function Product() {
               className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center select-none"
               onTouchStart={onTouchStart}
               onTouchEnd={onTouchEnd}
-              onDoubleClick={openLightbox}
             >
               {photos[imgIndex] ? (
                 <img
                   src={photos[imgIndex]}
                   alt={product.name}
-                  className="w-full h-full object-contain cursor-zoom-in"
-                  onClick={openLightbox}
+                  className="w-full h-full object-contain"
                 />
               ) : (
                 <div className="text-muted">Немає фото</div>
@@ -216,13 +148,13 @@ export default function Product() {
                   <button
                     type="button"
                     aria-label="Попереднє фото"
-                    onClick={prevImg}
+                    onClick={prev}
                     className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
                   >‹</button>
                   <button
                     type="button"
                     aria-label="Наступне фото"
-                    onClick={nextImg}
+                    onClick={next}
                     className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
                   >›</button>
                 </>
@@ -232,24 +164,17 @@ export default function Product() {
             {/* Мініатюри */}
             {photos.length > 1 && (
               <div className="mt-3 w-full max-w-full">
-                <div
-                  ref={thumbsRef}
-                  className="block w-full max-w-full overflow-x-auto overscroll-contain pb-1"
-                  style={{ scrollbarGutter: 'stable both-edges' }}
-                >
-                  <div className="inline-flex gap-3">
-                    {photos.map((src, i) => (
-                      <button
-                        key={i}
-                        data-idx={i}
-                        className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-600 outline outline-2 outline-indigo-500' : 'border-slate-200'}`}
-                        onClick={() => setImgIndex(i)}
-                        title={`Фото ${i+1}`}
-                      >
-                        <img src={src} alt="" className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
+                <div className="inline-flex gap-3 overflow-x-auto pb-1">
+                  {photos.map((src, i) => (
+                    <button
+                      key={i}
+                      className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-600 outline outline-2 outline-indigo-500' : 'border-slate-200'}`}
+                      onClick={() => setImgIndex(i)}
+                      title={`Фото ${i+1}`}
+                    >
+                      <img src={src} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -315,62 +240,6 @@ export default function Product() {
           />
         </div>
       </div>
-
-      {/* ЛАЙТБОКС */}
-      {lightboxOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center"
-          onWheel={onWheel}
-          onMouseMove={onDragMove}
-          onMouseUp={onDragEnd}
-          onMouseLeave={onDragEnd}
-          onTouchMove={onTouchDragMove}
-          onTouchEnd={onTouchDragEnd}
-          onTouchStart={onTouchDragStart}
-        >
-          <button
-            className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 hover:bg-white text-slate-800 text-xl leading-none flex items-center justify-center z-30"
-            onClick={() => setLightboxOpen(false)}
-            aria-label="Закрити"
-          >
-            ×
-          </button>
-
-          {photos.length > 1 && (
-            <>
-              <button
-                onClick={prevImg}
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl z-30"
-                aria-label="Попереднє фото"
-              >‹</button>
-              <button
-                onClick={nextImg}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white text-slate-800 text-2xl z-30"
-                aria-label="Наступне фото"
-              >›</button>
-            </>
-          )}
-
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-30">
-            <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomOut} disabled={zoom<=1}>−</button>
-            <button className="btn-outline !bg-white/90 !text-slate-900" onClick={resetZoom}>100%</button>
-            <button className="btn-outline !bg-white/90 !text-slate-900" onClick={zoomIn}>+</button>
-          </div>
-
-          <div
-            className="relative max-w-[95vw] max-h-[85vh] overflow-hidden cursor-grab active:cursor-grabbing z-10"
-            onMouseDown={onDragStart}
-          >
-            <img
-              src={photos[imgIndex]}
-              alt=""
-              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
-              className="select-none pointer-events-none object-contain max-h-[85vh] max-w-[95vw]"
-              draggable={false}
-            />
-          </div>
-        </div>
-      )}
     </div>
   )
 }
