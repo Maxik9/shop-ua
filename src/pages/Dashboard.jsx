@@ -11,7 +11,6 @@ const STATUS_UA = {
   delivered: 'Доставлено',
   canceled: 'Скасовано',
 }
-
 const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
 
 function fmtDate(ts) {
@@ -44,6 +43,7 @@ export default function Dashboard() {
           .select(`
             id, order_no, created_at, status, qty, my_price, ttn, payment_method,
             recipient_name, recipient_phone, settlement, nova_poshta_branch,
+            comment,
             product:products ( id, name, image_url, price_dropship )
           `)
           .eq('user_id', uid)
@@ -88,6 +88,7 @@ export default function Dashboard() {
         settlement: first?.settlement || '',
         branch: first?.nova_poshta_branch || '',
         ttn: first?.ttn || '',
+        comment: first?.comment || '',
         status, payment, payout,
         lines
       }
@@ -160,7 +161,7 @@ export default function Dashboard() {
               </div>
 
               {/* Одержувач + адреса */}
-              <div className="mb-3 text-sm flex flex-col sm:flex-row sm:flex-wrap gap-y-1 gap-x-3">
+              <div className="mb-2 text-sm flex flex-col sm:flex-row sm:flex-wrap gap-y-1 gap-x-3">
                 <div>
                   <span className="text-muted">Одержувач:&nbsp;</span>
                   <span className="font-medium">{order.recipient_name || '—'}</span>
@@ -178,6 +179,14 @@ export default function Dashboard() {
                   <span className="font-medium">{order.branch || '—'}</span>
                 </div>
               </div>
+
+              {/* Коментар (якщо є) */}
+              {order.comment && (
+                <div className="text-sm mb-3">
+                  <span className="text-muted">Коментар:&nbsp;</span>
+                  <span className="font-medium whitespace-pre-wrap">{order.comment}</span>
+                </div>
+              )}
 
               {/* Лінії */}
               <div className="rounded-xl border border-slate-100">

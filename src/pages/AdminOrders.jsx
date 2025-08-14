@@ -33,12 +33,13 @@ export default function AdminOrders() {
     ;(async () => {
       setLoading(true); setError('')
       try {
-        // тільки адміну доступно (RLS)
+        // Доступ лише адміну (RLS)
         const { data, error } = await supabase
           .from('orders')
           .select(`
             id, order_no, created_at, status, qty, my_price, ttn, payment_method,
             recipient_name, recipient_phone, settlement, nova_poshta_branch,
+            comment,
             product:products ( id, name, image_url, price_dropship ),
             user:profiles ( user_id, email, full_name )
           `)
@@ -75,9 +76,9 @@ export default function AdminOrders() {
             const unitDrop = Number(p.price_dropship ?? 0)
             return s + (unitSale - unitDrop) * Number(r.qty || 1)
           }, 0)
-      // email того ж користувача (для всіх ліній однаковий)
       const email = first?.user?.email || ''
       const full_name = first?.user?.full_name || ''
+      const comment = first?.comment || ''
       return {
         order_no,
         created_at: first?.created_at,
@@ -91,6 +92,7 @@ export default function AdminOrders() {
         recipient_phone: first?.recipient_phone,
         settlement: first?.settlement || '',
         branch: first?.nova_poshta_branch || '',
+        comment,
         lines,
       }
     })
@@ -107,10 +109,10 @@ export default function AdminOrders() {
       )
     }
 
-    // Сортування за email (опційно), інакше — за датою
+    // Сортування за email (коли шукаємо по email)
     list.sort((a,b) => {
-      if (q.startsWith('@') || q.includes('@')) {
-        const cmp = (a.email||'').localeCompare(b.email||'')
+      if (q.includes('@')) {
+        const cmp = (a.email||'').localeCompare((b.email||''))
         return sortByEmailAsc ? cmp : -cmp
       }
       return new Date(b.created_at) - new Date(a.created_at)
@@ -121,13 +123,13 @@ export default function AdminOrders() {
 
   const totalPayout = useMemo(() => groups.reduce((s, g) => s + g.payout, 0), [groups])
 
-  // Зміна статусу всіх рядків замовлення
+  // Масова зміна статусу для order_no
   async function updateStatus(order_no, newStatus) {
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
     if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, status: newStatus } : r))
   }
 
-  // Зміна ТТН (для всіх рядків order_no)
+  // Масова зміна ТТН для order_no
   async function updateTTN(order_no, newTTN) {
     const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
     if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, ttn: newTTN } : r))
@@ -237,6 +239,14 @@ export default function AdminOrders() {
                 </div>
               </div>
 
+              {/* Коментар (якщо є) */}
+              {g.comment && (
+                <div className="text-sm">
+                  <span className="text-muted">Коментар:&nbsp;</span>
+                  <span className="font-medium whitespace-pre-wrap">{g.comment}</span>
+                </div>
+              )}
+
               {/* Лінії (товари) */}
               <div className="rounded-xl border border-slate-100">
                 {g.lines.map((r, idx) => {
@@ -248,7 +258,7 @@ export default function AdminOrders() {
                   return (
                     <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="w-full sm:w-16 sm:h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
-                        {p.image_url && <img src={p.image_url} className="w-full h-full object-cover" />}
+                        {p.image_url && <img src={p.image_url} className="w-full h-full object-cover" alt="" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{p.name || '—'}</div>
