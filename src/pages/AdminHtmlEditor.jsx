@@ -49,7 +49,6 @@ export default function AdminHtmlEditor() {
       const { error } = await supabase.from('products').update({ description: desc }).eq('id', current.id)
       if (error) throw error
       setMsg('Опис збережено')
-      // оновити локально
       setItems(prev => prev.map(it => it.id === current.id ? { ...it, description: desc } : it))
     } catch (e) {
       setMsg(e.message || 'Помилка збереження')
@@ -61,7 +60,7 @@ export default function AdminHtmlEditor() {
   return (
     <div className="container mx-auto p-4 max-w-6xl">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Редактор HTML опису</h1>
+        <h1 className="text-2xl font-semibold">HTML-редактор описів</h1>
         <Link to="/admin" className="btn-outline">← Адмін</Link>
       </div>
 
@@ -107,6 +106,13 @@ export default function AdminHtmlEditor() {
                   <div className="font-medium">{current.name}</div>
                   <div className="text-sm text-slate-500">{current.sku}</div>
                 </div>
+
+                {/* Підключіть ваш легкий редактор */}
+                {/* Якщо у вас вже є HtmlEditor.jsx — використовуйте його тут */}
+                {/* Тут припускаємо, що він існує. Якщо ні — я можу додати його у ZIP */}
+
+                {/* Проста textarea як запасний варіант: */}
+                {/* <textarea className="input min-h-[200px]" value={desc} onChange={e=>setDesc(e.target.value)} /> */}
 
                 <HtmlEditor value={desc} onChange={setDesc} />
 
