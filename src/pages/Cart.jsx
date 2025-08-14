@@ -19,10 +19,10 @@ export default function Cart() {
   const [settlement, setSettlement]         = useState('')
   const [branch, setBranch]                 = useState('')
 
-  // Спосіб оплати: 'cod' — післяплата, 'bank' — по реквізитам
+  // Оплата
   const [payment, setPayment] = useState('cod')
 
-  // Нове: Коментар
+  // Коментар
   const [comment, setComment] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
@@ -55,7 +55,6 @@ export default function Cart() {
       const uid = sdata?.session?.user?.id
       if (!uid) throw new Error('Потрібно увійти в аккаунт')
 
-      // Отримуємо номер замовлення (один для всіх рядків чеку)
       const { data: ono, error: onoErr } = await supabase.rpc('next_order_no')
       if (onoErr) throw onoErr
 
@@ -71,14 +70,14 @@ export default function Cart() {
         status: 'pending',
         order_no: ono,
         payment_method: payment,
-        comment: comment.trim(), // ← додали
+        comment: comment.trim(),
       }))
 
       const { error: insErr } = await supabase.from('orders').insert(rows)
       if (insErr) throw insErr
 
       clearCart()
-      nav('/dashboard') // після оформлення → у «Мої замовлення»
+      nav('/dashboard')
     } catch (e) {
       setError(e.message || 'Помилка оформлення')
     } finally {
@@ -107,14 +106,22 @@ export default function Cart() {
                 const qty       = Number(it.qty || 1)
                 return (
                   <div key={pid} className="rounded-xl border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                    <div className="w-full sm:w-20 sm:h-20 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
+                    {/* фото — приховано на мобілці */}
+                    <div className="hidden sm:block w-20 h-20 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
                       {it.product?.image_url && (
                         <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />
                       )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{it.product?.name || 'Товар'}</div>
+                      {/* назва як посилання на картку товару */}
+                      <Link
+                        to={`/product/${pid}`}
+                        className="font-medium hover:text-indigo-600 truncate block"
+                        title={it.product?.name}
+                      >
+                        {it.product?.name || 'Товар'}
+                      </Link>
                       <div className="text-muted text-sm">Дроп-ціна: {basePrice.toFixed(2)} ₴</div>
                     </div>
 
@@ -155,7 +162,7 @@ export default function Cart() {
         </div>
       </div>
 
-      {/* Дані + Спосіб оплати + Коментар */}
+      {/* Дані + Оплата + Коментар */}
       <div className="card">
         <div className="card-body">
           <div className="grid md:grid-cols-2 gap-4">
@@ -174,7 +181,6 @@ export default function Cart() {
               <label className="label mt-3">Відділення Нової пошти</label>
               <input className="input" value={branch} onChange={e=>setBranch(e.target.value)} placeholder="Напр.: 25" />
 
-              {/* Коментар */}
               <label className="label mt-3">Коментар до замовлення (необовʼязково)</label>
               <textarea
                 className="input"
@@ -187,7 +193,6 @@ export default function Cart() {
 
             <div>
               <div className="h2 mb-3">Спосіб оплати</div>
-
               <div className="space-y-2">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="radio" className="accent-indigo-600" name="payment" value="cod"
