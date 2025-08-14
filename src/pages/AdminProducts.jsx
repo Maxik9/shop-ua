@@ -142,6 +142,7 @@ export default function AdminProducts() {
           <div className="flex items-center justify-between gap-3 mb-2">
             <h1 className="h1">Адмін • Товари</h1>
             <div className="flex gap-2">
+              <Link className="btn-outline" to="/admin/import">Імпорт XLSX</Link>
               <button className="btn-outline" onClick={startCreate}>Новий товар</button>
             </div>
           </div>
@@ -182,7 +183,7 @@ export default function AdminProducts() {
                     <img src={form.image_url} alt="" className="w-full h-full object-contain" />
                   </div>
                 )}
-                <input className="input" type="file" multiple accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
+                <input className="input" type="file" accept="image/*" onChange={e=>setMainFile(e.target.files?.[0] || null)} />
               </Field>
 
               <Field label="Галерея (можна кілька)">
@@ -203,7 +204,7 @@ export default function AdminProducts() {
                     ))}
                   </div>
                 )}
-                <input className="input" type="file" multiple accept="image/*" multiple onChange={e=>setGalleryFiles(Array.from(e.target.files || []))} />
+                <input className="input" type="file" multiple accept="image/*" onChange={e=>setGalleryFiles(Array.from(e.target.files||[]))} />
               </Field>
 
               <div className="flex gap-2">
