@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import NavBar from './components/NavBar'
 import Search from './pages/Search'
-import AdminImport from './pages/AdminImport'
 
 // публичные страницы
 import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
@@ -67,7 +66,6 @@ export default function App() {
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
         <Route path="/search" element={<Search />} />
-        <Route path="/admin/import" element={<PrivateRoute><AdminImport /></PrivateRoute>} />
       </Routes>
     </>
   )
