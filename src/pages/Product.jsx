@@ -1,5 +1,5 @@
 // src/pages/Product.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
@@ -12,6 +12,11 @@ export default function Product() {
   const [product, setProduct] = useState(null)
   const [loading, setLoading] = useState(true)
   const [imgIndex, setImgIndex] = useState(0)
+
+  // swipe state
+  const startXRef = useRef(null)
+  const mainRef = useRef(null)
+  const thumbsRef = useRef(null)
 
   useEffect(() => {
     let mounted = true
@@ -39,6 +44,23 @@ export default function Product() {
 
   const photos = useMemo(() => product?._photos || [], [product])
 
+  // keep active thumbnail in view
+  useEffect(() => {
+    if (!thumbsRef.current) return
+    const container = thumbsRef.current
+    const item = container.children?.[imgIndex]
+    if (!item) return
+    const itemLeft = item.offsetLeft
+    const itemRight = itemLeft + item.offsetWidth
+    const viewLeft = container.scrollLeft
+    const viewRight = viewLeft + container.clientWidth
+    if (itemLeft < viewLeft) {
+      container.scrollTo({ left: itemLeft - 8, behavior: 'smooth' })
+    } else if (itemRight > viewRight) {
+      container.scrollTo({ left: itemRight - container.clientWidth + 8, behavior: 'smooth' })
+    }
+  }, [imgIndex])
+
   if (loading) return <div className="container-page py-6">Завантаження…</div>
 
   if (!product) {
@@ -54,11 +76,26 @@ export default function Product() {
   const addOne = () => addItem?.(product, 1, product.price_dropship)
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
 
-  function prevImg(){
-    setImgIndex(i => (i <= 0 ? photos.length - 1 : i - 1))
+  function goTo(newIdx){
+    if (!photos.length) return
+    const n = (newIdx + photos.length) % photos.length
+    setImgIndex(n)
   }
-  function nextImg(){
-    setImgIndex(i => (i >= photos.length - 1 ? 0 : i + 1))
+  function prevImg(){ goTo(imgIndex - 1) }
+  function nextImg(){ goTo(imgIndex + 1) }
+
+  function onTouchStart(e){
+    startXRef.current = e.touches?.[0]?.clientX ?? null
+  }
+  function onTouchEnd(e){
+    const sx = startXRef.current
+    if (sx == null) return
+    const ex = e.changedTouches?.[0]?.clientX ?? sx
+    const dx = ex - sx
+    const TH = 40 // threshold px
+    if (dx > TH) prevImg()
+    else if (dx < -TH) nextImg()
+    startXRef.current = null
   }
 
   return (
@@ -75,7 +112,12 @@ export default function Product() {
         {/* ФОТО */}
         <div className="card w-full">
           <div className="card-body">
-            <div className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center">
+            <div
+              ref={mainRef}
+              className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center select-none"
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+            >
               {photos[imgIndex] ? (
                 <img src={photos[imgIndex]} alt={product.name} className="w-full h-full object-contain" />
               ) : (
@@ -101,13 +143,17 @@ export default function Product() {
               )}
             </div>
 
+            {/* THUMB STRIP (horiz scroll, not all visible on mobile) */}
             {photos.length > 1 && (
-              <div className="-mx-3 px-3 mt-3 flex gap-3 overflow-x-auto pb-1">
+              <div
+                ref={thumbsRef}
+                className="-mx-3 px-3 mt-3 flex gap-3 overflow-x-auto pb-1 snap-x snap-mandatory"
+              >
                 {photos.map((src, i) => (
                   <button
                     key={i}
-                    className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
-                    onClick={() => setImgIndex(i)}
+                    className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border snap-start ${i===imgIndex ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-slate-200'}`}
+                    onClick={() => goTo(i)}
                     title={`Фото ${i+1}`}
                   >
                     <img src={src} alt="" className="w-full h-full object-cover" />
