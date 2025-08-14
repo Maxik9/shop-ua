@@ -3,68 +3,65 @@ import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import AvailabilityBadge from './AvailabilityBadge'
 
+/**
+ * Карточка товару для каталогу
+ * Кнопка "До кошика" приклеєна до низу блоку (mt-auto)
+ */
 export default function ProductCard({ product }) {
   const { addItem } = useCart()
 
-  const add = () => {
-    // якщо у твоєму контексті метод називається інакше — адаптуй тут
-    addItem?.(product, 1, product.price_dropship)
-  }
+  if (!product) return null
+
+  const img =
+    product.image_url ||
+    (Array.isArray(product.gallery_json) ? product.gallery_json[0] : '') ||
+    ''
+
+  const inStock = product.in_stock ?? true
+  const price = Number(product.price_dropship || 0) || 0
+
+  const add = () => addItem?.(product, 1, price)
 
   return (
     <div className="card h-full flex flex-col">
-      {/* фото: квадрат, однакова висота у всіх карток */}
-      <Link
-        to={`/product/${product.id}`}
-        className="block rounded-t-2xl overflow-hidden bg-slate-100"
-        aria-label={product.name}
-      >
-        <div className="aspect-square w-full">
-          {product?.image_url ? (
-            <img
-              src={product.image_url}
-              alt={product.name}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
+      {/* Фото */}
+      <Link to={`/product/${product.id}`} className="block">
+        <div className="w-full aspect-[4/3] bg-slate-100 rounded-t-2xl overflow-hidden">
+          {img ? (
+            <img src={img} alt={product.name} className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full grid place-items-center text-muted">
-              Немає фото
-            </div>
+            <div className="w-full h-full flex items-center justify-center text-muted">Немає фото</div>
           )}
         </div>
       </Link>
 
-      {/* контент */}
-      <div className="card-body flex-1 flex flex-col">
-        {/* назва: обмежимо до 2 рядків і зафіксуємо мінімальну висоту */}
+      {/* Контент */}
+      <div className="card-body flex flex-col">
         <Link
           to={`/product/${product.id}`}
-          className="block font-semibold text-[16px] leading-snug line-clamp-2 min-h-[44px]"
+          className="font-semibold leading-snug hover:text-indigo-600 mb-2 min-h-[3.5rem] line-clamp-3"
           title={product.name}
         >
           {product.name}
         </Link>
 
-        <div className="mt-1"><AvailabilityBadge in_stock={!!product.in_stock} /></div>
-
-        {/* ціна */}
-        <div className="mt-2 flex items-baseline justify-between">
-          <span className="text-muted text-sm">Дроп-ціна</span>
-          <span className="price font-semibold text-[17px] whitespace-nowrap">
-            {(Number(product.price_dropship) || 0).toFixed(2)} ₴
-          </span>
+        <div className="mb-2">
+          <AvailabilityBadge in_stock={!!inStock} />
         </div>
 
-        {/* кнопка — донизу, однакова висота, на всю ширину */}
-        <button
-          type="button"
-          onClick={add}
-          className={`btn-primary mt-3 w-full h-10 ${product.in_stock ? "" : "opacity-50 pointer-events-none"}`}
-          disabled={!product.in_stock}
-        >
-          До кошика
-        </button>
+        <div className="text-muted text-sm">Дроп-ціна</div>
+        <div className="text-lg font-semibold mb-2">{price.toFixed(2)} ₴</div>
+
+        {/* Кнопка — приклеєна до низу */}
+        <div className="mt-auto pt-2">
+          <button
+            onClick={add}
+            className={`btn-primary w-full ${inStock ? '' : 'opacity-50 pointer-events-none'}`}
+            disabled={!inStock}
+          >
+            До кошика
+          </button>
+        </div>
       </div>
     </div>
   )
