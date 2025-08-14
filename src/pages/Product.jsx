@@ -1,15 +1,15 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react'
+// src/pages/Product.jsx
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
 /**
- * SAFE MODE: мінімум хуків і логіки — щоб гарантовано позбутися React #310.
- * - завантаження товару через .single() (сумісно з supabase-js v1)
- * - фото з простими стрілками та свайпом
- * - кнопки "Додати в кошик / Замовити"
- * - опис рендериться як HTML
- * Немає лайтбоксу/зуму/автопрокруток, щоб не було умовних хуків.
+ * SAFE (без зуму/лайтбоксу) + мобільні фікси переповнення:
+ * - Усі колонки мають min-w-0
+ * - Зовнішні контейнери: overflow-x-hidden / max-w-full
+ * - Мініатюри: власний горизонтальний скрол, flex-none елементи
+ * - Назва/опис: break-words, ніколи не вилазять за екран
  */
 export default function Product() {
   const { id } = useParams()
@@ -21,16 +21,12 @@ export default function Product() {
   const [error, setError] = useState('')
   const [imgIndex, setImgIndex] = useState(0)
 
-  // для свайпу в блоці фото
   const touchStartX = useRef(null)
 
   useEffect(() => {
     let alive = true
     async function load() {
-      setLoading(true)
-      setError('')
-      setProduct(null)
-      setImgIndex(0)
+      setLoading(true); setError(''); setProduct(null); setImgIndex(0)
       try {
         const { data, error } = await supabase
           .from('products')
@@ -39,17 +35,11 @@ export default function Product() {
           .single()
 
         if (error) {
-          // якщо сторінка побудована по sku як id — можна розкоментувати цей блок і спробувати фолбек
-          // const bySku = await supabase
-          //   .from('products')
-          //   .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
-          //   .eq('sku', id)
-          //   .single()
-          // if (!bySku.error && bySku.data) { if (alive) setProduct(normalize(bySku.data)) }
-          // else setError(error.message || 'Помилка завантаження')
           setError(error.message || 'Помилка завантаження')
         } else if (data) {
-          if (alive) setProduct(normalize(data))
+          const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
+          const photos = Array.from(new Set([data.image_url, ...g].filter(Boolean)))
+          if (alive) setProduct({ ...data, _photos: photos })
         } else {
           setError('Товар не знайдено')
         }
@@ -65,14 +55,8 @@ export default function Product() {
 
   const photos = useMemo(() => product?._photos || [], [product])
 
-  function normalize(row) {
-    const g = Array.isArray(row.gallery_json) ? row.gallery_json : []
-    const uniq = Array.from(new Set([row.image_url, ...g].filter(Boolean)))
-    return { ...row, _photos: uniq }
-  }
-
   // керування фото
-  function goTo(n) {
+  const goTo = (n) => {
     if (!photos.length) return
     const next = (n + photos.length) % photos.length
     setImgIndex(next)
@@ -80,7 +64,7 @@ export default function Product() {
   const prev = () => goTo(imgIndex - 1)
   const next = () => goTo(imgIndex + 1)
 
-  // свайп
+  // свайп для великого фото
   const onTouchStart = (e) => { touchStartX.current = e.touches?.[0]?.clientX ?? null }
   const onTouchEnd = (e) => {
     const sx = touchStartX.current
@@ -127,9 +111,9 @@ export default function Product() {
       <div className="grid lg:grid-cols-2 gap-4 sm:gap-6 items-start">
         {/* Фото */}
         <div className="card w-full min-w-0">
-          <div className="card-body">
+          <div className="card-body overflow-x-hidden">
             <div
-              className="relative w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center select-none"
+              className="relative w-full max-w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center select-none"
               onTouchStart={onTouchStart}
               onTouchEnd={onTouchEnd}
             >
@@ -161,10 +145,13 @@ export default function Product() {
               )}
             </div>
 
-            {/* Мініатюри */}
+            {/* Мініатюри — ТІЛЬКИ ВНУТРІШНІЙ СКРОЛ, не розтягуємо сторінку */}
             {photos.length > 1 && (
-              <div className="mt-3 w-full max-w-full">
-                <div className="inline-flex gap-3 overflow-x-auto pb-1">
+              <div className="mt-3 w-full max-w-full overflow-hidden">
+                <div
+                  className="flex gap-3 overflow-x-auto pb-1 max-w-full"
+                  style={{ WebkitOverflowScrolling: 'touch', scrollbarGutter: 'stable both-edges' }}
+                >
                   {photos.map((src, i) => (
                     <button
                       key={i}
@@ -188,7 +175,7 @@ export default function Product() {
           </h1>
 
           {product.sku && (
-            <div className="text-sm text-muted mb-2">
+            <div className="text-sm text-muted mb-2 break-words">
               Артикул: <b>{product.sku}</b>
             </div>
           )}
@@ -231,11 +218,13 @@ export default function Product() {
         </div>
       </div>
 
-      {/* Опис */}
-      <div className="mt-8 card">
-        <div className="card-body">
+      {/* Опис — ніколи не виходить за межі */}
+      <div className="mt-8 card overflow-x-hidden">
+        <div className="card-body overflow-x-hidden">
           <div
             className="prose max-w-none break-words"
+            // якщо в описі трапляються таблиці/код з великою шириною — вони теж обріжуться без горизонтального скролу
+            style={{ overflowX: 'hidden', wordBreak: 'break-word' }}
             dangerouslySetInnerHTML={{ __html: product.description || '' }}
           />
         </div>
