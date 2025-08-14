@@ -257,11 +257,11 @@ export default function AdminOrders() {
                   const perLinePayout = g.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
                   return (
                     <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
-                      <div className="w-full sm:w-16 sm:h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
+                      <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
                         {p.image_url && <img src={p.image_url} className="w-full h-full object-cover" alt="" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{p.name || '—'}</div>
+                        <Link to={`/product/${p.id}`} className="font-medium truncate hover:text-indigo-600">{p.name || '—'}</Link>
                         <div className="text-muted text-sm">К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴</div>
                       </div>
                       <div className="text-right">
