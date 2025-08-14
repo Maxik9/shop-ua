@@ -1,4 +1,3 @@
-// src/components/NavBar.jsx
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useEffect, useState } from 'react'
@@ -47,7 +46,7 @@ export default function NavBar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <Link to="/cart" className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-300 hover:bg-slate-50">
+          <Link to="/cart" className="relative inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-300 hover:bg-slate-50" title="Кошик">
             🛒
             {count > 0 && (
               <span className="absolute -top-1 -right-1 rounded-full bg-indigo-600 text-white text-[11px] leading-4 w-5 h-5 text-center">

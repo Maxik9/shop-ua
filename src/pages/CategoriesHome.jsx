@@ -1,22 +1,31 @@
-// src/pages/CategoriesHome.jsx
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
 export default function CategoriesHome() {
   const [cats, setCats] = useState([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.from('categories')
-      .select('*')
-      .is('parent_id', null)             // тільки верхній рівень
-      .order('name', { ascending: true })
-      .then(({ data }) => setCats(data || []))
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .is('parent_id', null)
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true })
+      if (!error) setCats(data || [])
+      setLoading(false)
+    })()
   }, [])
 
   return (
     <div className="container-page my-6">
       <h1 className="h1 mb-4">Категорії</h1>
+
+      {loading && <div className="text-muted">Завантаження…</div>}
+      {!loading && cats.length === 0 && <div className="text-muted">Немає категорій.</div>}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cats.map(c => (
           <Link key={c.id} to={`/category/${c.id}`} className="card hover:shadow-md transition">

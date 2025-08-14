@@ -1,23 +1,22 @@
-// src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import NavBar from './components/NavBar'
 
-// публічні сторінки
-import CategoriesHome from './pages/CategoriesHome'      // головна (категорії)
-import CategoryPage   from './pages/CategoryPage'        // товари певної категорії
+// публичные страницы
+import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
+import CategoryPage   from './pages/CategoryPage'     // товары категории + подкатегории
 import Product        from './pages/Product'
 import Cart           from './pages/Cart'
 import Login          from './pages/Login'
 import About          from './pages/About'
 import Contacts       from './pages/Contacts'
 
-// особистий кабінет
+// личный кабинет
 import Dashboard      from './pages/Dashboard'
 
-// адмін
-import Admin          from './pages/Admin'               // дашборд
+// админ
+import Admin          from './pages/Admin'            // дашборд
 import AdminOrders    from './pages/AdminOrders'
 import AdminProducts  from './pages/AdminProducts'
 import AdminCategories from './pages/AdminCategories'
@@ -42,7 +41,7 @@ export default function App() {
     <>
       <NavBar />
       <Routes>
-        {/* публічні */}
+        {/* публичные */}
         <Route path="/" element={<CategoriesHome />} />
         <Route path="/category/:id" element={<CategoryPage />} />
         <Route path="/product/:id" element={<Product />} />
@@ -51,26 +50,16 @@ export default function App() {
         <Route path="/about" element={<About />} />
         <Route path="/contacts" element={<Contacts />} />
 
-        {/* приватні */}
-        <Route path="/dashboard" element={
-          <PrivateRoute><Dashboard /></PrivateRoute>
-        } />
+        {/* приватные */}
+        <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
 
-        {/* адмін */}
-        <Route path="/admin" element={
-          <PrivateRoute><Admin /></PrivateRoute>
-        } />
-        <Route path="/admin/orders" element={
-          <PrivateRoute><AdminOrders /></PrivateRoute>
-        } />
-        <Route path="/admin/products" element={
-          <PrivateRoute><AdminProducts /></PrivateRoute>
-        } />
-        <Route path="/admin/categories" element={
-          <PrivateRoute><AdminCategories /></PrivateRoute>
-        } />
+        {/* админ */}
+        <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
+        <Route path="/admin/orders" element={<PrivateRoute><AdminOrders /></PrivateRoute>} />
+        <Route path="/admin/products" element={<PrivateRoute><AdminProducts /></PrivateRoute>} />
+        <Route path="/admin/categories" element={<PrivateRoute><AdminCategories /></PrivateRoute>} />
 
-        {/* 404 → на головну */}
+        {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </>

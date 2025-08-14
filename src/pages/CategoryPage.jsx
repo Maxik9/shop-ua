@@ -1,4 +1,3 @@
-// src/pages/CategoryPage.jsx
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
@@ -7,20 +6,23 @@ import ProductCard from '../components/ProductCard'
 export default function CategoryPage() {
   const { id } = useParams()
   const [cat, setCat] = useState(null)
+  const [children, setChildren] = useState([])
   const [products, setProducts] = useState([])
-  const [children, setChildren] = useState([]) // підкатегорії
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!id) return
     ;(async () => {
+      setLoading(true)
       const [{ data: c }, { data: childs }, { data: prods }] = await Promise.all([
         supabase.from('categories').select('*').eq('id', id).single(),
-        supabase.from('categories').select('*').eq('parent_id', id).order('name'),
+        supabase.from('categories').select('*').eq('parent_id', id).order('sort_order').order('name'),
         supabase.from('products').select('*').eq('category_id', id).order('created_at', { ascending:false })
       ])
       setCat(c || null)
       setChildren(childs || [])
       setProducts(prods || [])
+      setLoading(false)
     })()
   }, [id])
 
@@ -28,7 +30,7 @@ export default function CategoryPage() {
     <div className="container-page my-6">
       <div className="flex items-center justify-between gap-3 mb-4">
         <h1 className="h1">{cat?.name || 'Категорія'}</h1>
-        <Link className="btn-outline" to="/">← До категорій</Link>
+        <Link to="/" className="btn-outline">← До категорій</Link>
       </div>
 
       {children.length > 0 && (
@@ -49,11 +51,12 @@ export default function CategoryPage() {
         </>
       )}
 
+      {loading && <div className="text-muted">Завантаження…</div>}
+      {!loading && products.length === 0 && (
+        <div className="text-muted">Немає товарів у цій категорії.</div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {products.map(p => <ProductCard key={p.id} product={p} />)}
-        {products.length === 0 && (
-          <div className="text-muted">Немає товарів у цій категорії.</div>
-        )}
       </div>
     </div>
   )
