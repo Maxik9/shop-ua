@@ -1,51 +1,77 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 
+/**
+ * Адмінка категорій і підкатегорій:
+ * - CRUD (назва, батько, обкладинка)
+ * - дерево категорій з фільтром
+ * - адаптивний інтерфейс
+ * - збереження зображення в bucket "category-images"
+ */
+
 export default function AdminCategories() {
+  const empty = { id: null, name: '', parent_id: null, image_url: '' }
+
   const [cats, setCats] = useState([])
   const [loading, setLoading] = useState(false)
-  const [q, setQ] = useState('')
 
-  // форма
-  const empty = { id:null, name:'', parent_id:'', image_url:'' }
+  // Форма
   const [form, setForm] = useState(empty)
   const [file, setFile] = useState(null)
 
-  useEffect(() => { load() }, [])
-  async function load() {
-    const { data } = await supabase.from('categories').select('*').order('name')
-    setCats(data || [])
+  // UI / пошук
+  const [q, setQ] = useState('')
+  const [expanded, setExpanded] = useState({}) // id -> bool для розгортання гілок
+
+  useEffect(() => { loadAll() }, [])
+
+  async function loadAll() {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .order('name', { ascending: true })
+    if (!error) setCats(data || [])
+    setLoading(false)
   }
 
-  const options = useMemo(() => {
-    return [{ id:'', name:'— без батьківської —' }, ...(cats || [])]
-  }, [cats])
+  function startCreate(parent_id = null) {
+    setForm({ ...empty, parent_id })
+    setFile(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
-  const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase()
-    if (!t) return cats
-    return (cats || []).filter(c => (c.name || '').toLowerCase().includes(t))
-  }, [cats, q])
+  function startEdit(c) {
+    setForm({
+      id: c.id,
+      name: c.name || '',
+      parent_id: c.parent_id || null,
+      image_url: c.image_url || ''
+    })
+    setFile(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
-  function startCreate() { setForm(empty); setFile(null) }
-  function startEdit(c)  { setForm({ id:c.id, name:c.name||'', parent_id:c.parent_id||'', image_url:c.image_url||'' }); setFile(null) }
-
-  async function uploadToStorage(f) {
+  async function uploadImageIfNeeded(f) {
     if (!f) return null
+    const bucket = 'category-images'
     const ext = f.name.split('.').pop()
     const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
-    const { error } = await supabase.storage.from('category-images').upload(path, f)
+    const { error } = await supabase.storage.from(bucket).upload(path, f, { upsert: false })
     if (error) throw error
-    const { data } = supabase.storage.from('category-images').getPublicUrl(path)
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path)
     return data.publicUrl
   }
 
   async function save() {
-    if (!form.name.trim()) return alert('Вкажіть назву категорії')
+    if (!form.name.trim()) { alert('Вкажіть назву категорії'); return }
     setLoading(true)
     try {
       let image_url = form.image_url
-      if (file) image_url = await uploadToStorage(file)
+      if (file) {
+        const url = await uploadImageIfNeeded(file)
+        if (url) image_url = url
+      }
 
       const payload = {
         name: form.name.trim(),
@@ -59,114 +85,218 @@ export default function AdminCategories() {
         await supabase.from('categories').insert(payload)
       }
 
-      await load()
-      setForm(empty); setFile(null)
-    } catch(e) { alert(e.message || 'Помилка') }
-    finally { setLoading(false) }
+      await loadAll()
+      setForm(empty)
+      setFile(null)
+    } catch (e) {
+      console.error(e)
+      alert(e.message || 'Помилка збереження')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function del(id) {
-    if (!window.confirm('Видалити категорію? Її підкатегорії стануть верхнього рівня.')) return
-    // відчепити дітей
-    await supabase.from('categories').update({ parent_id: null }).eq('parent_id', id)
+    if (!window.confirm('Видалити категорію? У підкатегорій ця категорія стане без батьківської.')) return
+    setLoading(true)
     const { error } = await supabase.from('categories').delete().eq('id', id)
-    if (error) return alert(error.message)
-    await load()
-    if (form.id === id) setForm(empty)
+    if (error) alert(error.message)
+    await loadAll()
+    setLoading(false)
   }
 
-  return (
-    <div className="max-w-6xl mx-auto p-3">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Категорії</h1>
-        <button className="btn-outline" onClick={startCreate}>Нова категорія</button>
-      </div>
+  // ---- Побудова списків/дерева ----
 
-      {/* Форма */}
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-sm text-slate-500 mb-1">Назва</div>
-          <input className="input mb-3" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
+  // Фільтр за рядком
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return cats
+    return (cats || []).filter(
+      c =>
+        (c.name || '').toLowerCase().includes(t)
+    )
+  }, [q, cats])
 
-          <div className="text-sm text-slate-500 mb-1">Батьківська категорія</div>
-          <select className="input mb-3" value={form.parent_id ?? ''} onChange={e=>setForm({...form, parent_id:e.target.value})}>
-            {options.map(o => <option key={o.id || '__root'} value={o.id}>{o.name}</option>)}
-          </select>
-
-          <div className="text-sm text-slate-500 mb-1">Зображення</div>
-          {form.image_url && (
-            <div className="w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 mb-2">
-              <img src={form.image_url} alt="" className="w-full h-full object-cover"/>
-            </div>
-          )}
-          <input type="file" className="input mb-3" accept="image/*" onChange={e=>setFile(e.target.files?.[0] || null)} />
-
-          <div className="flex gap-2">
-            <button className="btn-primary" onClick={save} disabled={loading}>{form.id ? 'Зберегти' : 'Створити'}</button>
-            {form.id && <button className="btn-ghost" onClick={()=>setForm(empty)}>Скасувати</button>}
-          </div>
-        </div>
-
-        {/* Список / дерево */}
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <input className="input input-xs w-[260px]" placeholder="Пошук категорій…" value={q} onChange={e=>setQ(e.target.value)} />
-            <div className="ml-auto text-slate-500 text-sm">{filtered.length} шт.</div>
-          </div>
-
-          <Tree cats={cats} filtered={filtered} onEdit={startEdit} onDel={del} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Tree({ cats, filtered, onEdit, onDel }) {
-  // збудуємо дерево з урахуванням фільтру
+  // Групування за parent_id для побудови дерева
   const byParent = useMemo(() => {
-    constids: Record<string, any[]> = {}
+    /** @type {Record<string, any[]>} */
+    const ids = {}
     ;(filtered || []).forEach(c => {
       const p = c.parent_id || '__root'
-      ;(ids[p] ||= []).push(c)
+      if (!ids[p]) ids[p] = []
+      ids[p].push(c)
     })
-    Object.values(ids).forEach(arr => arr.sort((a,b)=>a.name.localeCompare(b.name)))
+    // Впорядкуємо всередині кожної групи
+    Object.keys(ids).forEach(k => ids[k].sort((a,b) => (a.name||'').localeCompare(b.name||'')))
     return ids
   }, [filtered])
 
+  function toggle(id) {
+    setExpanded(s => ({ ...s, [id]: !s[id] }))
+  }
+
+  // Рекурсивний рендер рядка категорії
+  function CatRow({ node, level = 0 }) {
+    const children = byParent[node.id] || []
+    const hasKids = children.length > 0
+    const open = expanded[node.id] ?? true
+
+    return (
+      <>
+        <tr className="border-t border-slate-100">
+          <td className="py-2 pr-3">
+            <div className="flex items-center gap-2">
+              <div style={{ width: level * 16 }} />
+              {hasKids && (
+                <button
+                  className="text-slate-500 hover:text-slate-700"
+                  title={open ? 'Згорнути' : 'Розгорнути'}
+                  onClick={() => toggle(node.id)}
+                >
+                  {open ? '▾' : '▸'}
+                </button>
+              )}
+              {!hasKids && <span className="text-slate-300">•</span>}
+              <span className="font-medium">{node.name}</span>
+            </div>
+          </td>
+          <td className="py-2 pr-3">
+            {node.parent_id
+              ? (cats.find(x => x.id === node.parent_id)?.name || '—')
+              : <span className="text-slate-400">Корінь</span>}
+          </td>
+          <td className="py-2 pr-3">
+            <div className="flex items-center gap-2">
+              <button className="btn-outline input-xs" onClick={() => startEdit(node)}>Редагувати</button>
+              <button className="btn-ghost input-xs" onClick={() => startCreate(node.id)}>+ Підкатегорія</button>
+              <button className="btn-ghost input-xs" onClick={() => del(node.id)}>Видалити</button>
+            </div>
+          </td>
+        </tr>
+
+        {hasKids && open && children.map(child => (
+          <CatRow key={child.id} node={child} level={level + 1} />
+        ))}
+      </>
+    )
+  }
+
   return (
-    <div className="space-y-2">
-      {(byParent['__root'] || []).map(c => (
-        <Node key={c.id} node={c} byParent={byParent} depth={0} onEdit={onEdit} onDel={onDel}/>
-      ))}
-      {(!byParent['__root'] || byParent['__root'].length===0) && (
-        <div className="text-slate-500 text-sm">Немає категорій</div>
-      )}
+    <div className="container-page my-6">
+      <div className="card">
+        <div className="card-body">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h1 className="h1">Категорії та підкатегорії</h1>
+            <div className="flex gap-2">
+              <button className="btn-outline" onClick={() => startCreate(null)}>Нова коренева</button>
+              <button className="btn-ghost" onClick={loadAll} disabled={loading}>Оновити</button>
+            </div>
+          </div>
+
+          {/* Форма створення/редагування */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <Field label="Назва категорії">
+                <input
+                  className="input"
+                  value={form.name}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
+                  placeholder="Напр.: Автоклави"
+                />
+              </Field>
+
+              <Field label="Батьківська категорія">
+                <select
+                  className="input"
+                  value={form.parent_id || ''}
+                  onChange={e => setForm({ ...form, parent_id: e.target.value || null })}
+                >
+                  <option value="">— без батьківської —</option>
+                  {cats
+                    .filter(c => c.id !== form.id) // не дозволяти ставити батьком саму себе
+                    .sort((a,b)=>(a.name||'').localeCompare(b.name||''))
+                    .map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                </select>
+              </Field>
+
+              <div className="flex gap-2">
+                <button className="btn-primary" onClick={save} disabled={loading}>
+                  {form.id ? 'Зберегти' : 'Створити'}
+                </button>
+                {form.id && (
+                  <button className="btn-ghost" onClick={() => { setForm(empty); setFile(null) }}>
+                    Скасувати
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Field label="Обкладинка (необов’язково)">
+                {form.image_url && (
+                  <div className="mb-2 w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden">
+                    <img src={form.image_url} alt="" className="w-full h-full object-cover" />
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="input"
+                  onChange={e => setFile(e.target.files?.[0] || null)}
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Список/дерево */}
+      <div className="card mt-6">
+        <div className="card-body">
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <input
+              className="input input-xs w-[260px]"
+              placeholder="Пошук по назві…"
+              value={q}
+              onChange={e => setQ(e.target.value)}
+            />
+            <div className="text-muted text-sm ml-auto">
+              {filtered.length} запис(ів)
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-[14px]">
+              <thead className="text-left text-slate-500">
+                <tr>
+                  <th className="py-2 pr-3">Категорія</th>
+                  <th className="py-2 pr-3">Батько</th>
+                  <th className="py-2 pr-3 w-[220px]">Дії</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(byParent['__root'] || []).map(root => (
+                  <CatRow key={root.id} node={root} />
+                ))}
+                {(byParent['__root'] || []).length === 0 && (
+                  <tr><td className="py-6 text-center text-muted" colSpan={3}>Порожньо</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
 
-function Node({ node, byParent, depth, onEdit, onDel }) {
-  const children = byParent[node.id] || []
+function Field({ label, children }) {
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <div className="text-slate-500 select-none" style={{ width: depth*14 }} />
-        <div className="flex-1">
-          <div className="font-medium">{node.name}</div>
-          {node.parent_id && <div className="text-xs text-slate-500">Підкатегорія</div>}
-        </div>
-        <div className="flex gap-1">
-          <button className="btn-outline input-xs" onClick={()=>onEdit(node)}>Редагувати</button>
-          <button className="btn-ghost input-xs" onClick={()=>onDel(node.id)}>Видалити</button>
-        </div>
-      </div>
-      {children.length>0 && (
-        <div className="mt-1 space-y-1">
-          {children.map(c => (
-            <Node key={c.id} node={c} byParent={byParent} depth={depth+1} onEdit={onEdit} onDel={onDel}/>
-          ))}
-        </div>
-      )}
+      <div className="text-sm text-muted mb-1">{label}</div>
+      {children}
     </div>
   )
 }
