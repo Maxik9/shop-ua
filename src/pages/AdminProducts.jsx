@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 
@@ -9,7 +10,7 @@ export default function AdminProducts() {
   const [catFilter, setCatFilter] = useState('all')
 
   const emptyForm = {
-    id: null, name:'', description:'', category_id:null,
+    id: null, sku:'', name:'', description:'', category_id:null,
     price_dropship:'', image_url:'', gallery_json:[]
   }
   const [form, setForm] = useState(emptyForm)
@@ -41,7 +42,7 @@ export default function AdminProducts() {
     if (catFilter !== 'all') arr = arr.filter(p => p.category_id === catFilter)
     if (q.trim()) {
       const t = q.toLowerCase()
-      arr = arr.filter(p => (p.name || '').toLowerCase().includes(t))
+      arr = arr.filter(p => (p.name || '').toLowerCase().includes(t) || (p.sku || '').toLowerCase().includes(t))
     }
     return arr
   }, [products, q, catFilter])
@@ -51,7 +52,7 @@ export default function AdminProducts() {
   }
   function startEdit(p) {
     setForm({
-      id: p.id, name: p.name || '', description: p.description || '',
+      id: p.id, sku: p.sku || '', name: p.name || '', description: p.description || '',
       category_id: p.category_id || null, price_dropship: p.price_dropship ?? '',
       image_url: p.image_url || '', gallery_json: Array.isArray(p.gallery_json) ? p.gallery_json : []
     })
@@ -83,7 +84,7 @@ export default function AdminProducts() {
       }
 
       const payload = {
-        name: form.name,
+        sku: (form.sku||'').trim(), name: form.name,
         description: form.description || null,
         category_id: form.category_id || null,
         price_dropship: Number(form.price_dropship),
@@ -146,6 +147,10 @@ export default function AdminProducts() {
           {/* Форма товару */}
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-3">
+              <Field label="Артикул (SKU)">
+                <input className="input" value={form.sku} onChange={e=>setForm(f=>({...f, sku:e.target.value}))} placeholder="ABC-001" />
+              </Field>
+
               <Field label="Назва">
                 <input className="input" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Назва товару" />
               </Field>
@@ -238,6 +243,7 @@ export default function AdminProducts() {
                           {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
                         </div>
                         <div className="font-medium">{p.name}</div>
+                    <div className="text-xs text-muted">SKU: {p.sku || "—"}</div>
                       </div>
                     </td>
                     <td className="py-3 pr-3">{catLabel(p.category_id)}</td>
