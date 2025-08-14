@@ -1,12 +1,14 @@
 // src/pages/Product.jsx
-import { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 
 /**
- * Картка товару з лайтом та фіксом: у лайтбоксі тепер працює свайп вліво/вправо (коли zoom = 1),
- * а стрілки завжди видимі (вищий z-index). Панорамування вмикається тільки при zoom > 1.
+ * Картка товару з лайтбоксом, захистом від "порожнього екрану" та fallback-пошуком за SKU.
+ * 1) Першою спробою тягнемо за id
+ * 2) Якщо не знайшли — пробуємо за sku
+ * 3) Помилки показуємо в UI, а не падаємо.
  */
 export default function Product() {
   const { id } = useParams()
@@ -15,6 +17,7 @@ export default function Product() {
 
   const [product, setProduct] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [imgIndex, setImgIndex] = useState(0)
 
   // swipe/scroll refs (card)
@@ -31,22 +34,47 @@ export default function Product() {
   useEffect(() => {
     let mounted = true
     async function load() {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
-        .eq('id', id)
-        .single()
+      setLoading(true); setError(''); setProduct(null)
+      try {
+        // 1) Пошук за id
+        let q = supabase
+          .from('products')
+          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
+          .eq('id', id)
+          .maybeSingle()
+        let { data, error } = await q
 
-      if (!mounted) return
-      if (!error && data) {
-        const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
-        const photos = [data.image_url, ...g].filter(Boolean)
-        const uniq = Array.from(new Set(photos))
-        setProduct({ ...data, _photos: uniq })
-        setImgIndex(0)
+        // 2) Якщо не знайшли — пошук за sku
+        if (!data && !error) {
+          const bySku = await supabase
+            .from('products')
+            .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
+            .eq('sku', id)
+            .maybeSingle()
+          data = bySku.data
+          error = bySku.error
+        }
+
+        if (error) {
+          setError(error.message || 'Помилка завантаження')
+        }
+
+        if (data) {
+          const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
+          const photos = [data.image_url, ...g].filter(Boolean)
+          const uniq = Array.from(new Set(photos))
+          if (mounted) {
+            setProduct({ ...data, _photos: uniq })
+            setImgIndex(0)
+          }
+        } else if (!error) {
+          setError('Товар не знайдено')
+        }
+      } catch (e) {
+        setError(e.message || 'Непередбачена помилка')
+      } finally {
+        if (mounted) setLoading(false)
       }
-      setLoading(false)
     }
     load()
     return () => { mounted = false }
@@ -68,7 +96,17 @@ export default function Product() {
     else if (right > viewR) c.scrollTo({ left: right - c.clientWidth + 8, behavior: 'smooth' })
   }, [imgIndex])
 
+  // === РЕНДЕР СТАНІВ ==========================================================
   if (loading) return <div className="container-page py-6">Завантаження…</div>
+
+  if (error) {
+    return (
+      <div className="container-page py-6">
+        <div className="alert-error mb-4">{error}</div>
+        <Link to="/" className="btn-outline">← До каталогу</Link>
+      </div>
+    )
+  }
 
   if (!product) {
     return (
@@ -79,6 +117,7 @@ export default function Product() {
     )
   }
 
+  // === ЛОГІКА СТОРІНКИ =======================================================
   const canBuy = !!product.in_stock
   const addOne = () => addItem?.(product, 1, product.price_dropship)
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
@@ -103,11 +142,7 @@ export default function Product() {
     startXRef.current = null
   }
 
-  function openLightbox(){
-    setLightboxOpen(true)
-    setZoom(1)
-    setPan({ x: 0, y: 0 })
-  }
+  function openLightbox(){ setLightboxOpen(true); setZoom(1); setPan({ x: 0, y: 0 }) }
   function zoomIn(){ setZoom(z => Math.min(4, +(z + 0.25).toFixed(2))) }
   function zoomOut(){ setZoom(z => Math.max(1, +(z - 0.25).toFixed(2))) }
   function resetZoom(){ setZoom(1); setPan({ x: 0, y: 0 }) }
@@ -115,10 +150,7 @@ export default function Product() {
   function onWheel(e){
     e.preventDefault()
     const delta = e.deltaY < 0 ? 0.25 : -0.25
-    setZoom(z => {
-      const nz = Math.min(4, Math.max(1, +(z + delta).toFixed(2)))
-      return nz
-    })
+    setZoom(z => Math.min(4, Math.max(1, +(z + delta).toFixed(2))))
   }
 
   // Панорамування дозволяємо тільки при zoom > 1
@@ -135,7 +167,7 @@ export default function Product() {
   }
   function onDragEnd(){ dragRef.current.dragging = false }
 
-  // Touch drag/pan
+  // Touch drag/pan у лайтбоксі
   function onTouchDragStart(e){
     if (zoom <= 1) { // коли не зумлено — готуємо свайп
       lbSwipeStartRef.current = e.touches?.[0]?.clientX ?? null
@@ -285,16 +317,16 @@ export default function Product() {
             <button
               type="button"
               onClick={addOne}
-              className={`btn-outline w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
-              disabled={!canBuy}
+              className={`btn-outline w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!product.in_stock}
             >
               Додати в кошик
             </button>
             <button
               type="button"
               onClick={buyNow}
-              className={`btn-primary w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
-              disabled={!canBuy}
+              className={`btn-primary w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!product.in_stock}
             >
               Замовити
             </button>
