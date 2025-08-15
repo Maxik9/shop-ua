@@ -1,0 +1,5 @@
+
+{
+  "tasks": { "start": "deno run -A --watch=static/,supabase/ supabase/functions/feeds_refresh/index.ts" },
+  "deploy": { "exclude": ["*.map"] }
+}
