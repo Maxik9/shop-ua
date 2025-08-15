@@ -67,7 +67,7 @@ export default function App() {
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
         <Route path="/search" element={<Search />} />
-	<Route path="/admin/import" element={<AdminImport/>} />
+	<Route path="/admin/import" element={<RequireAdmin><AdminImport/></RequireAdmin>} />
       </Routes>
     </>
   )

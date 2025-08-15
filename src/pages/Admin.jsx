@@ -1,35 +1,54 @@
-// src/pages/Admin.jsx  (дашборд)
+
 import { Link } from 'react-router-dom'
 
+/**
+ * Адмін-панель з доданою карткою "Імпорт товарів".
+ * Якщо у тебе вже є свій компонент, просто виріж нижче секцію з цією карткою
+ * та встав у свою сітку. Класи розмітки максимально нейтральні (Tailwind).
+ */
 export default function Admin() {
   return (
-    <div className="container-page my-6">
-      <h1 className="h1 mb-4">Адмін-панель</h1>
+    <div className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold mb-6">Адмін-панель</h1>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Link to="/admin/orders" className="card hover:shadow transition">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Замовлення */}
+        <div className="card">
           <div className="card-body">
-            <div className="text-xl font-semibold mb-1">Замовлення</div>
-            <div className="text-muted">Статуси, ТТН, сума до виплати</div>
-            <div className="mt-2 text-indigo-600">Перейти →</div>
+            <div className="text-xl font-semibold mb-2">Замовлення</div>
+            <div className="text-slate-600 mb-3">Статуси, ТТН, сума до виплати</div>
+            <Link to="/admin/orders" className="text-indigo-600 hover:underline">Перейти →</Link>
           </div>
-        </Link>
+        </div>
 
-        <Link to="/admin/products" className="card hover:shadow transition">
+        {/* Товари */}
+        <div className="card">
           <div className="card-body">
-            <div className="text-xl font-semibold mb-1">Товари</div>
-            <div className="text-muted">Додавання, редагування, фото та галереї</div>
-            <div className="mt-2 text-indigo-600">Перейти →</div>
+            <div className="text-xl font-semibold mb-2">Товари</div>
+            <div className="text-slate-600 mb-3">Додавання, редагування, фото та галереї</div>
+            <Link to="/admin/products" className="text-indigo-600 hover:underline">Перейти →</Link>
           </div>
-        </Link>
+        </div>
 
-        <Link to="/admin/categories" className="card hover:shadow transition">
+        {/* Категорії */}
+        <div className="card">
           <div className="card-body">
-            <div className="text-xl font-semibold mb-1">Категорії</div>
-            <div className="text-muted">Категорії, підкатегорії та їх зображення</div>
-            <div className="mt-2 text-indigo-600">Перейти →</div>
+            <div className="text-xl font-semibold mb-2">Категорії</div>
+            <div className="text-slate-600 mb-3">Категорії, підкатегорії та їх зображення</div>
+            <Link to="/admin/categories" className="text-indigo-600 hover:underline">Перейти →</Link>
           </div>
-        </Link>
+        </div>
+
+        {/* НОВЕ: Імпорт товарів */}
+        <div className="card">
+          <div className="card-body">
+            <div className="text-xl font-semibold mb-2">Імпорт товарів</div>
+            <div className="text-slate-600 mb-3">
+              XLSX (головне фото + галерея через кому), далі XML-фіди
+            </div>
+            <Link to="/admin/import" className="text-indigo-600 hover:underline">Перейти →</Link>
+          </div>
+        </div>
       </div>
     </div>
   )
