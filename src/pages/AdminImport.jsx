@@ -5,11 +5,12 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
 /**
- * AdminImport — крок 1: XLSX імпорт товарів
- * Поля: sku*, name, price, in_stock, description, photos (кома-розділений список URL)
+ * AdminImport — крок 1: XLSX імпорт товарів (з категорією)
+ * Поля: sku*, name, price, in_stock, description, photos (URL через кому), category (назва категорії)
  * Галерея: перший URL = головне фото (image_url), вся послідовність = gallery_json
+ * Категорія: шукаємо існуючу в таблиці categories по name (case-insensitive).
+ *            Якщо не знайдено — лишаємо без категорії та показуємо попередження.
  * Upsert у public.products за ключем sku.
- * (крок 2: XML-фіди додамо у цю ж сторінку окремою вкладкою)
  */
 
 const XLSX_FIELDS = [
@@ -19,6 +20,7 @@ const XLSX_FIELDS = [
   { key: 'in_stock',    label: 'Наявність (1/0, так/ні)' },
   { key: 'description', label: 'Опис (HTML або текст)' },
   { key: 'photos',      label: 'Фото (URL через кому)', hint: 'перший = головне, решта = галерея' },
+  { key: 'category',    label: 'Категорія (назва)' },
 ]
 
 function normBool(v){
@@ -50,12 +52,13 @@ export default function AdminImport(){
   const [preview, setPreview] = useState([])  // перші N нормалізованих рядків
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [warn, setWarn] = useState('')
   const [err, setErr] = useState('')
 
   async function onFile(e){
     const file = e.target.files?.[0]
     if (!file) return
-    setErr(''); setMsg('')
+    setErr(''); setMsg(''); setWarn('')
     try{
       const data = await readXlsxFile(file)
       if (!data?.length) throw new Error('Порожній файл або невірний формат')
@@ -73,6 +76,7 @@ export default function AdminImport(){
         in_stock:    find('in_stock','stock','наявність','наличие','остаток'),
         description: find('description','опис','описание','html'),
         photos:      find('photos','images','gallery','gallery_urls','фото','галерея'),
+        category:    find('category','категорія','категория','category_name'),
       }
       setMap(guess)
       recomputePreview(guess, rest, hdrs)
@@ -95,6 +99,7 @@ export default function AdminImport(){
         if (f.key === 'in_stock') v = normBool(v)
         if (f.key === 'price') v = normPrice(v)
         if (f.key === 'photos') v = splitPhotos(v)
+        if (f.key === 'category') v = String(v ?? '').trim()
         o[f.key] = v
       }
       // зручні поля для прев'ю
@@ -123,7 +128,7 @@ export default function AdminImport(){
   }
 
   async function runImport(){
-    setBusy(true); setMsg(''); setErr('')
+    setBusy(true); setMsg(''); setErr(''); setWarn('')
     try{
       if (!map.sku) throw new Error('Вкажіть колонку для SKU (артикул)')
       const colIndex = Object.fromEntries(headers.map((h,i)=>[h,i]))
@@ -138,6 +143,7 @@ export default function AdminImport(){
           if (f.key === 'in_stock') v = normBool(v)
           if (f.key === 'price') v = normPrice(v)
           if (f.key === 'photos') v = splitPhotos(v)
+          if (f.key === 'category') v = String(v ?? '').trim()
           o[f.key] = v
         }
         return o
@@ -145,21 +151,43 @@ export default function AdminImport(){
 
       if (!all.length) throw new Error('Не знайдено жодного рядка з SKU')
 
-      // 2) трансформація під products
+      // 2) знайдемо відповідні категорії за назвою (case-insensitive)
+      const catNames = Array.from(new Set(all.map(o => o.category).filter(Boolean)))
+      const catMap = {} // lower(name) -> id
+      if (catNames.length){
+        // Забираємо лише необхідні категорії (якщо назви збігаються точно),
+        // а нижче робимо клієнтський case-insensitive мапінг.
+        const { data: cats, error: catErr } = await supabase
+          .from('categories')
+          .select('id,name')
+          .in('name', catNames)
+        if (catErr) throw catErr
+        for (const c of (cats || [])) catMap[c.name.toLowerCase()] = c.id
+      }
+
+      // 3) трансформація під products
+      const unknownSet = new Set()
       const toUpsert = all.map(o => {
         const photos = Array.isArray(o.photos) ? o.photos : []
+        let category_id = null
+        if (o.category){
+          const id = catMap[o.category.toLowerCase()]
+          if (id) category_id = id
+          else unknownSet.add(o.category)
+        }
         return {
           sku: String(o.sku).trim(),
           name: o.name ? String(o.name).trim() : null,
           price_dropship: typeof o.price === 'number' ? o.price : null,
           in_stock: !!o.in_stock,
           description: o.description ?? null,
-          image_url: photos[0] || null,          // перше фото — головне
+          image_url: photos[0] || null,               // перше фото — головне
           gallery_json: photos.length ? photos : null, // вся галерея
+          category_id,
         }
       })
 
-      // 3) батчовий upsert по sku
+      // 4) батчовий upsert по sku
       const CHUNK = 200
       let done = 0
       for (let i=0; i<toUpsert.length; i+=CHUNK){
@@ -168,7 +196,12 @@ export default function AdminImport(){
         if (error) throw error
         done += slice.length
       }
+
+      const unknown = Array.from(unknownSet)
       setMsg(`Готово: імпортовано/оновлено ${done} позицій`)
+      if (unknown.length){
+        setWarn(`Категорії не знайдено (створи заздалегідь або перевір написання): ${unknown.join(', ')}`)
+      }
     }catch(e){
       setErr(e.message || 'Помилка імпорту')
     }finally{
@@ -177,7 +210,7 @@ export default function AdminImport(){
   }
 
   return (
-    <div className="container mx-auto p-4 max-w-5xl">
+    <div className="container mx-auto p-4 max-w-6xl">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Імпорт товарів</h1>
         <Link to="/admin/products" className="btn-ghost">← До товарів</Link>
@@ -190,13 +223,14 @@ export default function AdminImport(){
 
       {err && <div className="text-sm text-red-600 mb-3">Помилка: {err}</div>}
       {msg && <div className="text-sm text-green-700 mb-3">{msg}</div>}
+      {warn && <div className="text-sm text-amber-600 mb-3">{warn}</div>}
 
       <div className="card">
         <div className="card-body">
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
             <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={onFile} />
             <div className="text-sm text-slate-600">
-              Підтримувані поля (будь-який порядок): <b>sku*</b>, name, price, in_stock, description, photos(<i>URL через кому</i>).
+              Підтримувані поля (будь-який порядок): <b>sku*</b>, name, price, in_stock, description, photos(<i>URL через кому</i>), <b>category</b>(назва).
             </div>
           </div>
 
