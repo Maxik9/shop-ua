@@ -1,6 +1,6 @@
 // src/pages/Product.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 import HtmlContent from '../components/HtmlContent'
@@ -8,6 +8,7 @@ import HtmlContent from '../components/HtmlContent'
 export default function Product() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { addItem } = useCart()
 
   const [product, setProduct] = useState(null)
@@ -29,7 +30,7 @@ export default function Product() {
     WebkitOverflowScrolling: 'touch',
     padding: '0 8px 6px',
     maxWidth: '100%',
-    contain: 'inline-size',     // не впливає на зовнішній розмір сторінки
+    contain: 'inline-size',
   }
 
   useEffect(() => {
@@ -39,7 +40,7 @@ export default function Product() {
       try {
         const { data, error } = await supabase
           .from('products')
-          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock')
+          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock, category_id')
           .eq('id', id)
           .single()
 
@@ -82,13 +83,35 @@ export default function Product() {
     touchStartX.current = null
   }
 
+  // ――― NAVIGATION: back to category we came from ―――
+  const backToCategory = () => {
+    // 1) якщо ми прийшли з категорії — просто крок назад в історії
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    // 2) якщо передали явно шлях категорії через state
+    const fromCatPath = location.state?.fromCategoryPath || location.state?.fromCategory
+    if (fromCatPath) {
+      navigate(fromCatPath, { replace: true })
+      return
+    }
+    // 3) fallback: якщо у товару є category_id — спробуємо /category/:id
+    if (product?.category_id) {
+      navigate(`/category/${product.category_id}`, { replace: true })
+      return
+    }
+    // 4) запасний план — каталог
+    navigate('/')
+  }
+
   // стани
   if (loading) return <div className="container-page py-6">Завантаження…</div>
   if (error) {
     return (
       <div className="container-page py-6">
         <div className="alert-error mb-4">{error}</div>
-        <Link to="/" className="btn-outline">← До каталогу</Link>
+        <button type="button" onClick={backToCategory} className="btn-outline">← Назад</button>
       </div>
     )
   }
@@ -96,7 +119,7 @@ export default function Product() {
     return (
       <div className="container-page py-6">
         <div className="mb-4">Товар не знайдено.</div>
-        <Link to="/" className="btn-outline">← До каталогу</Link>
+        <button type="button" onClick={backToCategory} className="btn-outline">← Назад</button>
       </div>
     )
   }
@@ -109,9 +132,13 @@ export default function Product() {
     <div className="container-page py-4 sm:py-6 overflow-x-hidden">
       {/* Назад */}
       <div className="mb-3 sm:mb-4">
-        <Link to="/" className="inline-flex items-center gap-2 text-sm btn-outline">
-          <span>←</span> До каталогу
-        </Link>
+        <button
+          type="button"
+          onClick={backToCategory}
+          className="inline-flex items-center gap-2 text-sm btn-outline"
+        >
+          <span>←</span> Назад
+        </button>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 sm:gap-6 items-start">
@@ -204,16 +231,16 @@ export default function Product() {
             <button
               type="button"
               onClick={addOne}
-              className={`btn-outline w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
-              disabled={!canBuy}
+              className={`btn-outline w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!product.in_stock}
             >
               Додати в кошик
             </button>
             <button
               type="button"
               onClick={buyNow}
-              className={`btn-primary w-full sm:w-auto ${canBuy ? '' : 'opacity-50 pointer-events-none'}`}
-              disabled={!canBuy}
+              className={`btn-primary w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
+              disabled={!product.in_stock}
             >
               Замовити
             </button>
