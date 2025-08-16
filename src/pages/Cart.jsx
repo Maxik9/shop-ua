@@ -20,16 +20,17 @@ export default function Cart() {
   const [branch, setBranch]                 = useState('')
 
   // Оплата
-  const [payment, setPayment] = useState('cod')
+  const [payment, setPayment] = useState('cod') // 'cod' (післяплата) | 'bank'
 
   // Коментар (необовʼязковий)
   const [comment, setComment] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [submitted, setSubmitted] = useState(false) // щоб підсвічувати після кліку
+  const [submitted, setSubmitted] = useState(false) // показувати помилки після натискання кнопки
 
-  const phoneDigits = useMemo(() => recipientPhone.replace(/\D/g, ''), [recipientPhone])
+  // Нормалізований телефон — тільки цифри
+  const phoneDigits = useMemo(() => (recipientPhone || '').replace(/\D/g, ''), [recipientPhone])
 
   const total = useMemo(() => {
     try {
@@ -41,39 +42,42 @@ export default function Cart() {
     } catch { return 0 }
   }, [safeItems])
 
-  // ===== Валідація за умовами =====
-  const onlyLetters = (s) => {
+  // ===== Валідація =====
+  const lettersOnlyCore = (s) => {
     const core = (s || '').trim()
-    if (core.length < 1) return false
-    // дозволяємо пробіли/дефіси/апострофи, але літери мають бути українські/латиниця
-    const lettersOnly = core.replace(/[ '\-’]/g, '')
-    return /^[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]+$/.test(lettersOnly)
+    if (!core) return ''
+    // дозволяємо пробіли/дефіси/апострофи, видаляємо їх для перевірки
+    return core.replace(/[ '\-’]/g, '')
   }
-  const onlyDigits = (s) => /^\d+$/.test((s || '').trim())
+  const isLetters = (s) => /^[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]+$/.test(lettersOnlyCore(s))
+  const isDigits  = (s) => /^\d+$/.test((s || '').trim())
 
-  const validName       = recipientName.trim().length > 0 && onlyLetters(recipientName)
-  const validPhone      = phoneDigits.length >= 10 && onlyDigits(phoneDigits) // тільки цифри, >=10
-  const validSettlement = settlement.trim().length > 0 && onlyLetters(settlement)
-  const validBranch     = branch.trim().length > 0 && onlyDigits(branch)
+  const validName       = recipientName.trim().length > 0 && isLetters(recipientName)
+  const validPhone      = phoneDigits.length >= 10 && isDigits(phoneDigits)
+  const validSettlement = settlement.trim().length > 0 && isLetters(settlement)
+  const validBranch     = branch.trim().length > 0 && isDigits(branch)
 
   const canSubmit = useMemo(() => {
-    return safeItems.length > 0 && validName && validPhone && validSettlement && validBranch && (payment === 'cod' || payment === 'bank')
+    return safeItems.length > 0 &&
+      validName && validPhone && validSettlement && validBranch &&
+      (payment === 'cod' || payment === 'bank')
   }, [safeItems.length, validName, validPhone, validSettlement, validBranch, payment])
 
   async function placeOrder() {
-    setSubmitted(true) // показати підсвічення / повідомлення якщо не валідно
+    setSubmitted(true)
     setError('')
     if (!canSubmit) {
-      setError('Заповніть, будь ласка, поля')
+      // показ інлайнових помилок вже активований через submitted=true
       return
     }
+
     setSubmitting(true)
     try {
       const { data: sdata } = await supabase.auth.getSession()
       const uid = sdata?.session?.user?.id
       if (!uid) throw new Error('Потрібно увійти в аккаунт')
 
-      // Номер замовлення (якщо RPC нема — fallback на timestamp)
+      // Номер замовлення (RPC або timestamp-фолбек)
       let ono = null
       try {
         const { data: d, error: e } = await supabase.rpc('next_order_no')
@@ -89,13 +93,13 @@ export default function Cart() {
         qty: Number(it.qty || 1),
         my_price: Number(it.myPrice ?? it.product.price_dropship ?? 0),
         recipient_name: recipientName.trim(),
-        recipient_phone: phoneDigits,              // тільки цифри
+        recipient_phone: phoneDigits,                 // тільки цифри
         settlement: settlement.trim(),
-        nova_poshta_branch: branch.trim(),
+        nova_poshta_branch: branch.trim(),            // тільки цифри
         status: 'pending',
         order_no: ono,
-        payment_method: payment,
-        comment: comment.trim(),
+        payment_method: payment,                      // 'cod' | 'bank'
+        comment: (comment || '').trim(),
       }))
 
       const { error: insErr } = await supabase.from('orders').insert(rows)
@@ -110,8 +114,12 @@ export default function Cart() {
     }
   }
 
-  // хелпер для підсвічування інпутів
-  const invalidClass = (isValid) => (submitted && !isValid ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : '')
+  // Клас підсвічування невалідних інпутів (після кліку)
+  const invalidClass = (isValid) =>
+    submitted && !isValid ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : ''
+
+  const FieldError = ({ show, children }) =>
+    submitted && show ? <div className="text-red-600 text-sm mt-1">{children}</div> : null
 
   return (
     <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
@@ -136,7 +144,7 @@ export default function Cart() {
                 const inc = () => setQty(pid, qty + 1)
                 return (
                   <div key={pid} className="relative rounded-xl border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                    {/* фото — приховано на мобілці */}
+                    {/* Фото (десктоп) */}
                     <div className="hidden sm:block w-20 h-20 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
                       {it.product?.image_url && (
                         <img src={it.product.image_url} alt="" className="w-full h-full object-cover" />
@@ -144,7 +152,6 @@ export default function Cart() {
                     </div>
 
                     <div className="flex-1 min-w-0 pr-12 sm:pr-0">
-                      {/* назва як посилання на картку товару */}
                       <Link
                         to={`/product/${pid}`}
                         className="font-medium hover:text-indigo-600 truncate block"
@@ -155,7 +162,7 @@ export default function Cart() {
                       <div className="text-muted text-sm">Дроп-ціна: {basePrice.toFixed(2)} ₴</div>
                     </div>
 
-                    {/* Десктоп: як було раніше */}
+                    {/* Десктоп: кількість */}
                     <div className="hidden sm:flex items-center gap-2 sm:w-[160px]">
                       <span className="text-sm text-muted">Кількість</span>
                       <input
@@ -166,6 +173,7 @@ export default function Cart() {
                       />
                     </div>
 
+                    {/* Десктоп: ціна продажу */}
                     <div className="hidden sm:flex items-center gap-2 sm:w-[240px]">
                       <span className="text-sm text-muted whitespace-nowrap">Ціна продажу</span>
                       <input
@@ -176,7 +184,7 @@ export default function Cart() {
                       />
                     </div>
 
-                    {/* Кнопка видалення */}
+                    {/* Видалити товар */}
                     <button
                       className="sm:hidden absolute top-3 right-3 w-6 h-6 rounded-full border border-red-500 text-red-500 hover:bg-red-50 active:scale-95 transition"
                       onClick={() => removeItem(pid)}
@@ -199,7 +207,7 @@ export default function Cart() {
                       </svg>
                     </button>
 
-                    {/* Мобілка: степпер + інпут ціни */}
+                    {/* Мобілка: кількість + ціна продажу */}
                     <div className="sm:hidden w-full space-y-3 mt-1">
                       <div>
                         <div className="text-sm text-muted mb-1">Кількість</div>
@@ -257,6 +265,7 @@ export default function Cart() {
                 value={recipientName}
                 onChange={e=>setRecipientName(e.target.value)}
               />
+              <FieldError show={!validName}>Поле повинно містити лише літери.</FieldError>
 
               <label className="label mt-3">Телефон одержувача (+380...)</label>
               <input
@@ -266,6 +275,7 @@ export default function Cart() {
                 onChange={e=>setRecipientPhone(e.target.value)}
                 placeholder="+380..."
               />
+              <FieldError show={!validPhone}>Введіть щонайменше 10 цифр (лише цифри).</FieldError>
 
               <label className="label mt-3">Населений пункт</label>
               <input
@@ -273,6 +283,7 @@ export default function Cart() {
                 value={settlement}
                 onChange={e=>setSettlement(e.target.value)}
               />
+              <FieldError show={!validSettlement}>Поле повинно містити лише літери.</FieldError>
 
               <label className="label mt-3">Відділення Нової пошти</label>
               <input
@@ -281,6 +292,7 @@ export default function Cart() {
                 onChange={e=>setBranch(e.target.value)}
                 placeholder="Напр.: 25"
               />
+              <FieldError show={!validBranch}>Введіть номер відділення (лише цифри).</FieldError>
 
               <label className="label mt-3">Коментар до замовлення (необовʼязково)</label>
               <textarea
@@ -324,14 +336,14 @@ export default function Cart() {
                   {submitting ? 'Відправляємо…' : 'Підтвердити замовлення'}
                 </button>
 
-                {/* Загальне повідомлення під кнопкою */}
-                {submitted && !canSubmit && (
+                {/* Загальна помилка від сервера */}
+                {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+                {/* Загальне попередження (одне, без дублювань) */}
+                {submitted && !canSubmit && !error && (
                   <div className="text-red-600 mt-2 text-sm" aria-live="polite">
                     Заповніть, будь ласка, поля
                   </div>
                 )}
-
-                {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
               </div>
             </div>
           </div>
