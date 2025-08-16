@@ -11,6 +11,7 @@ const STATUS_OPTIONS = [
   { v: 'delivered',  t: 'Доставлено' },
   { v: 'canceled',   t: 'Скасовано' },
 ]
+const STATUS_UA = Object.fromEntries(STATUS_OPTIONS.map(o => [o.v, o.t]))
 const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
 
 function fmtDate(ts) {
@@ -22,35 +23,40 @@ function fmtDate(ts) {
 
 export default function AdminOrders() {
   const [rows, setRows] = useState([])
-  const [loading, setL] = useState(true)
-  const [error, setErr] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [q, setQ] = useState('')
-  const [sortByEmailAsc, setSortEmailAsc] = useState(true)
+  const [sortByEmailAsc, setSortByEmailAsc] = useState(true)
 
   useEffect(() => {
     let mounted = true
     ;(async () => {
-      setL(true); setErr('')
+      setLoading(true); setError('')
       try {
-        // Тільки для адмінів – політика RLS повинна пропускати is_admin(auth.uid())
-        // Жодних JOIN до profiles — лише select * і вкладений продукт
+        // Доступ лише адміну (RLS)
         const { data, error } = await supabase
           .from('orders')
-          .select(`*, product:products ( id, name, image_url, price_dropship )`)
+          .select(`
+            id, order_no, created_at, status, qty, my_price, ttn, payment_method,
+            recipient_name, recipient_phone, settlement, nova_poshta_branch,
+            comment,
+            product:products ( id, name, image_url, price_dropship ),
+            user:profiles ( user_id, email, full_name )
+          `)
           .order('created_at', { ascending: false })
 
         if (error) throw error
         if (mounted) setRows(data || [])
       } catch (e) {
-        if (mounted) setErr(e.message || 'Помилка завантаження')
+        if (mounted) setError(e.message || 'Помилка завантаження')
       } finally {
-        if (mounted) setL(false)
+        if (mounted) setLoading(false)
       }
     })()
     return () => { mounted = false }
   }, [])
 
-  // Групування у замовлення
+  // Групування по order_no
   const groups = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -59,30 +65,34 @@ export default function AdminOrders() {
       map.get(key).push(r)
     }
     let list = Array.from(map.entries()).map(([order_no, lines]) => {
-      const f       = lines[0]
-      const status  = lines.every(l => l.status === f.status) ? f.status : 'processing'
-      const payment = f?.payment_method || 'cod'
-      const payout  = payment === 'bank' ? 0 : lines.reduce((s, r) => {
-        const p        = r.product || {}
-        const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-        const unitDrop = Number(p.price_dropship ?? 0)
-        return s + (unitSale - unitDrop) * Number(r.qty || 1)
-      }, 0)
+      const first = lines[0]
+      const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
+      const payment = first?.payment_method || 'cod'
+      const payout = payment === 'bank'
+        ? 0
+        : lines.reduce((s, r) => {
+            const p = r.product || {}
+            const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
+            const unitDrop = Number(p.price_dropship ?? 0)
+            return s + (unitSale - unitDrop) * Number(r.qty || 1)
+          }, 0)
+      const email = first?.user?.email || ''
+      const full_name = first?.user?.full_name || ''
+      const comment = first?.comment || ''
       return {
         order_no,
-        created_at: f?.created_at,
-        ttn: f?.ttn || '',
+        created_at: first?.created_at,
+        ttn: first?.ttn || '',
         status,
         payment,
         payout,
-        // якщо в orders є колонка email — ми її покажемо. Якщо ні — буде «—»
-        email: f?.email || '',
-        full_name: f?.full_name || '',
-        recipient_name: f?.recipient_name,
-        recipient_phone: f?.recipient_phone,
-        settlement: f?.settlement || '',
-        branch: f?.nova_poshta_branch || '',
-        comment: f?.comment || '',
+        email,
+        full_name,
+        recipient_name: first?.recipient_name,
+        recipient_phone: first?.recipient_phone,
+        settlement: first?.settlement || '',
+        branch: first?.nova_poshta_branch || '',
+        comment,
         lines,
       }
     })
@@ -91,7 +101,7 @@ export default function AdminOrders() {
     const t = q.trim().toLowerCase()
     if (t) {
       list = list.filter(g =>
-        String(g.order_no || '').toLowerCase().includes(t) ||
+        (String(g.order_no) || '').toLowerCase().includes(t) ||
         (g.email || '').toLowerCase().includes(t) ||
         (g.full_name || '').toLowerCase().includes(t) ||
         (g.recipient_name || '').toLowerCase().includes(t) ||
@@ -99,10 +109,10 @@ export default function AdminOrders() {
       )
     }
 
-    // Сортування за email тільки коли шукаємо по email
+    // Сортування за email (коли шукаємо по email)
     list.sort((a,b) => {
       if (q.includes('@')) {
-        const cmp = (a.email||'').localeCompare(b.email||'')
+        const cmp = (a.email||'').localeCompare((b.email||''))
         return sortByEmailAsc ? cmp : -cmp
       }
       return new Date(b.created_at) - new Date(a.created_at)
@@ -111,15 +121,18 @@ export default function AdminOrders() {
     return list
   }, [rows, q, sortByEmailAsc])
 
-  const totalPayout = useMemo(() => groups.reduce((s,g)=>s+g.payout, 0), [groups])
+  const totalPayout = useMemo(() => groups.reduce((s, g) => s + g.payout, 0), [groups])
 
-  async function updateStatus(order_no, status) {
-    const { error } = await supabase.from('orders').update({ status }).eq('order_no', order_no)
-    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, status } : r))
+  // Масова зміна статусу для order_no
+  async function updateStatus(order_no, newStatus) {
+    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
+    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, status: newStatus } : r))
   }
-  async function updateTTN(order_no, ttn) {
-    const { error } = await supabase.from('orders').update({ ttn }).eq('order_no', order_no)
-    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, ttn } : r))
+
+  // Масова зміна ТТН для order_no
+  async function updateTTN(order_no, newTTN) {
+    const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
+    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, ttn: newTTN } : r))
   }
 
   return (
@@ -133,7 +146,11 @@ export default function AdminOrders() {
             value={q}
             onChange={e=>setQ(e.target.value)}
           />
-          <button className="btn-outline" onClick={()=>setSortEmailAsc(v=>!v)} title="Сортувати за email (коли фільтр — email)">
+          <button
+            className="btn-outline"
+            onClick={() => setSortByEmailAsc(v => !v)}
+            title="Сортувати за email (коли фільтр — email)"
+          >
             {sortByEmailAsc ? 'Email ↑' : 'Email ↓'}
           </button>
           <Link to="/" className="btn-outline">До каталогу</Link>
@@ -178,7 +195,9 @@ export default function AdminOrders() {
                       value={g.status}
                       onChange={e=>updateStatus(g.order_no, e.target.value)}
                     >
-                      {STATUS_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.t}</option>)}
+                      {STATUS_OPTIONS.map(o => (
+                        <option key={o.v} value={o.v}>{o.t}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -193,7 +212,7 @@ export default function AdminOrders() {
                     <input
                       className="input input-xs w-[200px]"
                       defaultValue={g.ttn}
-                      onBlur={e=>updateTTN(g.order_no, e.target.value.trim())}
+                      onBlur={e => updateTTN(g.order_no, e.target.value.trim())}
                       placeholder="Введіть номер…"
                     />
                   </div>
@@ -220,7 +239,7 @@ export default function AdminOrders() {
                 </div>
               </div>
 
-              {/* Коментар */}
+              {/* Коментар (якщо є) */}
               {g.comment && (
                 <div className="text-sm">
                   <span className="text-muted">Коментар:&nbsp;</span>
@@ -228,35 +247,33 @@ export default function AdminOrders() {
                 </div>
               )}
 
-              {/* Товари */}
+              {/* Лінії (товари) */}
               <div className="rounded-xl border border-slate-100">
                 {g.lines.map((r, idx) => {
-                  const p        = r.product || {}
+                  const p = r.product || {}
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
-                  const qty      = Number(r.qty || 1)
-                  const perLine  = g.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
+                  const qty = Number(r.qty || 1)
+                  const perLinePayout = g.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
                   return (
-                    <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0?'border-t border-slate-100':''}`}>
+                    <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
                         {p.image_url && <img src={p.image_url} className="w-full h-full object-cover" alt="" />}
                       </div>
                       <div className="flex-1 min-w-0 max-w-full">
-                        <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 break-words whitespace-normal leading-snug">
-                          {p.name || '—'}
-                        </Link>
+                        <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 break-words whitespace-normal leading-snug">{p.name || '—'}</Link>
                         <div className="text-muted text-sm">К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴</div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm text-muted">До виплати</div>
-                        <div className="font-semibold">{perLine.toFixed(2)} ₴</div>
+                        <div className="font-semibold">{perLinePayout.toFixed(2)} ₴</div>
                       </div>
                     </div>
                   )
                 })}
               </div>
 
-              {/* Разом */}
+              {/* Разом по замовленню */}
               <div className="mt-3 text-right">
                 <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
                 <span className="price text-[18px] font-semibold">{g.payout.toFixed(2)} ₴</span>
@@ -267,9 +284,11 @@ export default function AdminOrders() {
       </div>
 
       {groups.length > 0 && (
-        <div className="mt-4 text-right text-[18px]">
-          Всього до виплати по вибірці:&nbsp;
-          <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
+        <div className="mt-4 text-right">
+          <div className="text-[18px]">
+            Всього до виплати по вибірці:&nbsp;
+            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
+          </div>
         </div>
       )}
     </div>
