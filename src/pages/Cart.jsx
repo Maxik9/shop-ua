@@ -22,11 +22,14 @@ export default function Cart() {
   // Оплата
   const [payment, setPayment] = useState('cod')
 
-  // Коментар
+  // Коментар (необовʼязковий)
   const [comment, setComment] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [submitted, setSubmitted] = useState(false) // щоб підсвічувати після кліку
+
+  const phoneDigits = useMemo(() => recipientPhone.replace(/\D/g, ''), [recipientPhone])
 
   const total = useMemo(() => {
     try {
@@ -38,25 +41,47 @@ export default function Cart() {
     } catch { return 0 }
   }, [safeItems])
 
-  const canSubmit = useMemo(() =>
-    safeItems.length > 0 &&
-    recipientName.trim().length >= 2 &&
-    recipientPhone.trim().length >= 7 &&
-    settlement.trim().length >= 2 &&
-    branch.trim().length >= 1 &&
-    (payment === 'cod' || payment === 'bank')
-  , [safeItems, recipientName, recipientPhone, settlement, branch, payment])
+  // ===== Валідація за умовами =====
+  const onlyLetters = (s) => {
+    const core = (s || '').trim()
+    if (core.length < 1) return false
+    // дозволяємо пробіли/дефіси/апострофи, але літери мають бути українські/латиниця
+    const lettersOnly = core.replace(/[ '\-’]/g, '')
+    return /^[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]+$/.test(lettersOnly)
+  }
+  const onlyDigits = (s) => /^\d+$/.test((s || '').trim())
+
+  const validName       = recipientName.trim().length > 0 && onlyLetters(recipientName)
+  const validPhone      = phoneDigits.length >= 10 && onlyDigits(phoneDigits) // тільки цифри, >=10
+  const validSettlement = settlement.trim().length > 0 && onlyLetters(settlement)
+  const validBranch     = branch.trim().length > 0 && onlyDigits(branch)
+
+  const canSubmit = useMemo(() => {
+    return safeItems.length > 0 && validName && validPhone && validSettlement && validBranch && (payment === 'cod' || payment === 'bank')
+  }, [safeItems.length, validName, validPhone, validSettlement, validBranch, payment])
 
   async function placeOrder() {
-    if (!canSubmit) return
-    setSubmitting(true); setError('')
+    setSubmitted(true) // показати підсвічення / повідомлення якщо не валідно
+    setError('')
+    if (!canSubmit) {
+      setError('Заповніть, будь ласка, поля')
+      return
+    }
+    setSubmitting(true)
     try {
       const { data: sdata } = await supabase.auth.getSession()
       const uid = sdata?.session?.user?.id
       if (!uid) throw new Error('Потрібно увійти в аккаунт')
 
-      const { data: ono, error: onoErr } = await supabase.rpc('next_order_no')
-      if (onoErr) throw onoErr
+      // Номер замовлення (якщо RPC нема — fallback на timestamp)
+      let ono = null
+      try {
+        const { data: d, error: e } = await supabase.rpc('next_order_no')
+        if (e) throw e
+        ono = d
+      } catch {
+        ono = Math.floor(Date.now() / 1000)
+      }
 
       const rows = safeItems.map(it => ({
         user_id: uid,
@@ -64,7 +89,7 @@ export default function Cart() {
         qty: Number(it.qty || 1),
         my_price: Number(it.myPrice ?? it.product.price_dropship ?? 0),
         recipient_name: recipientName.trim(),
-        recipient_phone: recipientPhone.trim(),
+        recipient_phone: phoneDigits,              // тільки цифри
         settlement: settlement.trim(),
         nova_poshta_branch: branch.trim(),
         status: 'pending',
@@ -84,6 +109,9 @@ export default function Cart() {
       setSubmitting(false)
     }
   }
+
+  // хелпер для підсвічування інпутів
+  const invalidClass = (isValid) => (submitted && !isValid ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : '')
 
   return (
     <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
@@ -148,8 +176,7 @@ export default function Cart() {
                       />
                     </div>
 
-                    {/* Кнопка видалення: як було, + абсолют для мобілки */}
-                    {/* delete (mobile) */}
+                    {/* Кнопка видалення */}
                     <button
                       className="sm:hidden absolute top-3 right-3 w-6 h-6 rounded-full border border-red-500 text-red-500 hover:bg-red-50 active:scale-95 transition"
                       onClick={() => removeItem(pid)}
@@ -161,7 +188,6 @@ export default function Cart() {
                       </svg>
                     </button>
 
-                    {/* delete (desktop) */}
                     <button
                       className="hidden sm:inline-flex items-center justify-center w-7 h-7 rounded-full border border-red-500 text-red-500 hover:bg-red-50"
                       onClick={() => removeItem(pid)}
@@ -173,9 +199,8 @@ export default function Cart() {
                       </svg>
                     </button>
 
-                    {/* Мобілка: гарний степпер + інпут ціни на всю ширину */}
+                    {/* Мобілка: степпер + інпут ціни */}
                     <div className="sm:hidden w-full space-y-3 mt-1">
-                      {/* Кількість (степпер) */}
                       <div>
                         <div className="text-sm text-muted mb-1">Кількість</div>
                         <div className="grid grid-cols-[48px_1fr_48px] gap-2">
@@ -190,7 +215,6 @@ export default function Cart() {
                         </div>
                       </div>
 
-                      {/* Ціна продажу з префіксом ₴ */}
                       <div>
                         <div className="text-sm text-muted mb-1">Ціна продажу</div>
                         <div className="relative">
@@ -228,22 +252,41 @@ export default function Cart() {
               <div className="h2 mb-3">Дані одержувача</div>
 
               <label className="label">ПІБ одержувача</label>
-              <input className="input" value={recipientName} onChange={e=>setRecipientName(e.target.value)} />
+              <input
+                className={`input ${invalidClass(validName)}`}
+                value={recipientName}
+                onChange={e=>setRecipientName(e.target.value)}
+              />
 
               <label className="label mt-3">Телефон одержувача (+380...)</label>
-              <input className="input" value={recipientPhone} onChange={e=>setRecipientPhone(e.target.value)} placeholder="+380..." />
+              <input
+                type="tel"
+                className={`input ${invalidClass(validPhone)}`}
+                value={recipientPhone}
+                onChange={e=>setRecipientPhone(e.target.value)}
+                placeholder="+380..."
+              />
 
               <label className="label mt-3">Населений пункт</label>
-              <input className="input" value={settlement} onChange={e=>setSettlement(e.target.value)} />
+              <input
+                className={`input ${invalidClass(validSettlement)}`}
+                value={settlement}
+                onChange={e=>setSettlement(e.target.value)}
+              />
 
               <label className="label mt-3">Відділення Нової пошти</label>
-              <input className="input" value={branch} onChange={e=>setBranch(e.target.value)} placeholder="Напр.: 25" />
+              <input
+                className={`input ${invalidClass(validBranch)}`}
+                value={branch}
+                onChange={e=>setBranch(e.target.value)}
+                placeholder="Напр.: 25"
+              />
 
               <label className="label mt-3">Коментар до замовлення (необовʼязково)</label>
               <textarea
                 className="input"
                 rows="3"
-                placeholder="Напр.: Колір чорний. Бажано відправити завтра."
+                placeholder="Будь-які уточнення по замовленню"
                 value={comment}
                 onChange={(e)=>setComment(e.target.value)}
               />
@@ -275,10 +318,19 @@ export default function Cart() {
                 <button
                   className="btn-primary w-full md:w-auto"
                   onClick={placeOrder}
-                  disabled={!canSubmit || submitting}
+                  disabled={submitting || safeItems.length === 0}
+                  aria-disabled={submitting || safeItems.length === 0}
                 >
                   {submitting ? 'Відправляємо…' : 'Підтвердити замовлення'}
                 </button>
+
+                {/* Загальне повідомлення під кнопкою */}
+                {submitted && !canSubmit && (
+                  <div className="text-red-600 mt-2 text-sm" aria-live="polite">
+                    Заповніть, будь ласка, поля
+                  </div>
+                )}
+
                 {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
               </div>
             </div>
