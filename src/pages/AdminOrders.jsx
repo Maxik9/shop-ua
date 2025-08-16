@@ -1,296 +1,381 @@
-// src/pages/AdminOrders.jsx
-import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../supabaseClient'
-import { Link } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react';
+import supabase from '../supabaseClient';
 
-const STATUS_OPTIONS = [
-  { v: 'pending',    t: 'Нове' },
-  { v: 'processing', t: 'В обробці' },
-  { v: 'ordered',    t: 'Замовлено' },
-  { v: 'shipped',    t: 'Відправлено' },
-  { v: 'delivered',  t: 'Доставлено' },
-  { v: 'canceled',   t: 'Скасовано' },
-]
-const STATUS_UA = Object.fromEntries(STATUS_OPTIONS.map(o => [o.v, o.t]))
-const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
+const STATUS_LIST = [
+  'Нове',
+  'В обробці',
+  'Відправлено',
+  'Отримано',
+  'Відмова',
+  'Скасовано',
+];
 
-function fmtDate(ts) {
-  try {
-    const d = new Date(ts)
-    return d.toLocaleString('uk-UA', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })
-  } catch { return ts }
+const PAY_METHODS = ['Післяплата', 'Оплата по реквізитам'];
+
+function fmtMoney(n) {
+  const num = Number(n || 0);
+  return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₴';
+}
+
+function byCreatedDesc(a, b) {
+  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+}
+
+/**
+ * Групуємо рядки orders за order_no, бо в тебе замовлення можуть містити кілька позицій (кожна — рядок у orders)
+ */
+function groupByOrderNo(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const key = r.order_no ?? r.id; // fallback
+    if (!map.has(key)) {
+      map.set(key, {
+        header: {
+          order_no: key,
+          created_at: r.created_at,
+          email: r.email ?? r.user_email ?? '',
+          status: r.status,
+          payment_method: r.payment_method,
+          ttn: r.ttn ?? '',
+          user_id: r.user_id,
+        },
+        items: [],
+      });
+    }
+    map.get(key).items.push(r);
+  }
+  return Array.from(map.values()).sort((a, b) =>
+    byCreatedDesc({ created_at: a.header.created_at }, { created_at: b.header.created_at })
+  );
 }
 
 export default function AdminOrders() {
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [q, setQ] = useState('')
-  const [sortByEmailAsc, setSortByEmailAsc] = useState(true)
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [emailFilter, setEmailFilter] = useState('');
 
-  useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      setLoading(true); setError('')
-      try {
-        // Доступ лише адміну (RLS)
-        const { data, error } = await supabase
-          .from('orders')
-          .select(`
-            id, order_no, created_at, status, qty, my_price, ttn, payment_method,
-            recipient_name, recipient_phone, settlement, nova_poshta_branch,
-            comment,
-            product:products ( id, name, image_url, price_dropship ),
-            user:profiles ( user_id, email, full_name )
-          `)
-          .order('created_at', { ascending: false })
+  const grouped = useMemo(() => groupByOrderNo(rows), [rows]);
 
-        if (error) throw error
-        if (mounted) setRows(data || [])
-      } catch (e) {
-        if (mounted) setError(e.message || 'Помилка завантаження')
-      } finally {
-        if (mounted) setLoading(false)
+  async function fetchOrders() {
+    setLoading(true);
+    try {
+      let q = supabase
+        .from('orders')
+        .select(
+          `
+          id, created_at, order_no, user_id,
+          email, recipient_name, recipient_phone, settlement, nova_poshta_branch, shipping_address,
+          status, payment_method, ttn,
+          product_id, qty, my_price, price, price_dropship, image_url, name,
+          payout_total, payout_paid
+        `
+        );
+
+      if (emailFilter?.trim()) {
+        // частковий пошук
+        q = q.ilike('email', `%${emailFilter.trim()}%`);
       }
-    })()
-    return () => { mounted = false }
-  }, [])
 
-  // Групування по order_no
-  const groups = useMemo(() => {
-    const map = new Map()
-    for (const r of rows) {
-      const key = r.order_no || r.id
-      if (!map.has(key)) map.set(key, [])
-      map.get(key).push(r)
+      const { data, error } = await q.order('created_at', { ascending: false });
+      if (error) throw error;
+      setRows(data || []);
+    } catch (e) {
+      console.error(e);
+      alert('Помилка завантаження замовлень');
+    } finally {
+      setLoading(false);
     }
-    let list = Array.from(map.entries()).map(([order_no, lines]) => {
-      const first = lines[0]
-      const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
-      const payment = first?.payment_method || 'cod'
-      const payout = payment === 'bank'
-        ? 0
-        : lines.reduce((s, r) => {
-            const p = r.product || {}
-            const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-            const unitDrop = Number(p.price_dropship ?? 0)
-            return s + (unitSale - unitDrop) * Number(r.qty || 1)
-          }, 0)
-      const email = first?.user?.email || ''
-      const full_name = first?.user?.full_name || ''
-      const comment = first?.comment || ''
-      return {
-        order_no,
-        created_at: first?.created_at,
-        ttn: first?.ttn || '',
-        status,
-        payment,
-        payout,
-        email,
-        full_name,
-        recipient_name: first?.recipient_name,
-        recipient_phone: first?.recipient_phone,
-        settlement: first?.settlement || '',
-        branch: first?.nova_poshta_branch || '',
-        comment,
-        lines,
-      }
-    })
-
-    // Пошук
-    const t = q.trim().toLowerCase()
-    if (t) {
-      list = list.filter(g =>
-        (String(g.order_no) || '').toLowerCase().includes(t) ||
-        (g.email || '').toLowerCase().includes(t) ||
-        (g.full_name || '').toLowerCase().includes(t) ||
-        (g.recipient_name || '').toLowerCase().includes(t) ||
-        (g.recipient_phone || '').toLowerCase().includes(t)
-      )
-    }
-
-    // Сортування за email (коли шукаємо по email)
-    list.sort((a,b) => {
-      if (q.includes('@')) {
-        const cmp = (a.email||'').localeCompare((b.email||''))
-        return sortByEmailAsc ? cmp : -cmp
-      }
-      return new Date(b.created_at) - new Date(a.created_at)
-    })
-
-    return list
-  }, [rows, q, sortByEmailAsc])
-
-  const totalPayout = useMemo(() => groups.reduce((s, g) => s + g.payout, 0), [groups])
-
-  // Масова зміна статусу для order_no
-  async function updateStatus(order_no, newStatus) {
-    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
-    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, status: newStatus } : r))
   }
 
-  // Масова зміна ТТН для order_no
-  async function updateTTN(order_no, newTTN) {
-    const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
-    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, ttn: newTTN } : r))
+  useEffect(() => {
+    fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function updateRow(id, patch) {
+    const { error } = await supabase.from('orders').update(patch).eq('id', id);
+    if (error) {
+      console.error(error);
+      alert('Не вдалося зберегти зміни');
+    }
+  }
+
+  async function updateOrderHeader(order, patch) {
+    // застосовуємо патч одразу до всіх рядків із цим order_no
+    const ids = order.items.map((i) => i.id);
+    const { error } = await supabase.from('orders').update(patch).in('id', ids);
+    if (error) {
+      console.error(error);
+      alert('Не вдалося зберегти зміни');
+    } else {
+      fetchOrders();
+    }
+  }
+
+  async function markAllPaid(order) {
+    const ids = order.items.map((i) => i.id);
+    const { error } = await supabase.from('orders').update({ payout_paid: true }).in('id', ids);
+    if (error) {
+      console.error(error);
+      alert('Не вдалося позначити як виплачені');
+    } else {
+      fetchOrders();
+    }
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-        <h1 className="h1">Замовлення (адмін)</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            className="input input-xs w-[260px] sm:w-[320px]"
-            placeholder="Пошук: email, ПІБ, телефон або №…"
-            value={q}
-            onChange={e=>setQ(e.target.value)}
-          />
-          <button
-            className="btn-outline"
-            onClick={() => setSortByEmailAsc(v => !v)}
-            title="Сортувати за email (коли фільтр — email)"
-          >
-            {sortByEmailAsc ? 'Email ↑' : 'Email ↓'}
-          </button>
-          <Link to="/" className="btn-outline">До каталогу</Link>
-        </div>
+    <div className="container" style={{ maxWidth: 1100, margin: '0 auto', padding: '24px' }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>Замовлення (адмін)</h1>
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
+        <input
+          value={emailFilter}
+          onChange={(e) => setEmailFilter(e.target.value)}
+          placeholder="Email"
+          style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid #ddd',
+            minWidth: 280,
+          }}
+        />
+        <button
+          onClick={fetchOrders}
+          style={{
+            padding: '10px 16px',
+            borderRadius: 8,
+            background: '#1f6feb',
+            color: '#fff',
+            border: 'none',
+          }}
+        >
+          Показати
+        </button>
+        <button
+          onClick={() => {
+            setEmailFilter('');
+            fetchOrders();
+          }}
+          style={{
+            padding: '10px 16px',
+            borderRadius: 8,
+            background: '#e5e7eb',
+            border: '1px solid #d1d5db',
+          }}
+        >
+          Скинути
+        </button>
       </div>
 
-      {loading && <div className="card"><div className="card-body">Завантаження…</div></div>}
-      {error && (
-        <div className="card mb-4"><div className="card-body">
-          <div className="h2 mb-2">Помилка</div>
-          <div className="text-muted">{error}</div>
-        </div></div>
-      )}
-      {!loading && !error && groups.length === 0 && (
-        <div className="card"><div className="card-body text-muted">Нічого не знайдено.</div></div>
-      )}
+      {loading && <div>Завантаження…</div>}
 
-      <div className="space-y-3">
-        {groups.map(g => (
-          <div key={g.order_no} className="card">
-            <div className="p-4 space-y-3">
-              {/* Шапка замовлення */}
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm text-muted">№</div>
-                  <div className="text-[18px] font-semibold">{g.order_no}</div>
-                  <div className="hidden sm:block text-muted">•</div>
-                  <div className="text-sm text-muted">{fmtDate(g.created_at)}</div>
-                  <div className="hidden sm:block text-muted">•</div>
-                  <div className="text-sm">
-                    <span className="text-muted">Email:&nbsp;</span>
-                    <span className="font-medium">{g.email || '—'}</span>
+      {!loading &&
+        grouped.map((order) => {
+          const sumPayout = order.items.reduce((s, it) => s + Number(it.payout_total || 0), 0);
+
+          return (
+            <div
+              key={order.header.order_no + '-' + order.header.created_at}
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 16,
+                background: '#fff',
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div>
+                    №{' '}
+                    <strong>
+                      {order.header.order_no ?? '-'}{' '}
+                    </strong>{' '}
+                    •{' '}
+                    <span title={order.header.created_at}>
+                      {new Date(order.header.created_at).toLocaleString('uk-UA')}
+                    </span>{' '}
+                    • Email:{' '}
+                    <span style={{ fontWeight: 600 }}>{order.header.email || '—'}</span>
                   </div>
-                </div>
 
-                <div className="flex flex-wrap items-center gap-2">
                   {/* Статус */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted">Статус:</span>
+                  <div>
                     <select
-                      className="input input-xs w-[200px]"
-                      value={g.status}
-                      onChange={e=>updateStatus(g.order_no, e.target.value)}
+                      value={order.items[0].status || ''}
+                      onChange={(e) =>
+                        updateOrderHeader(order, { status: e.target.value })
+                      }
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        border: '1px solid #d1d5db',
+                      }}
                     >
-                      {STATUS_OPTIONS.map(o => (
-                        <option key={o.v} value={o.v}>{o.t}</option>
+                      {STATUS_LIST.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
                       ))}
                     </select>
                   </div>
 
-                  {/* Оплата */}
-                  <span className="px-2 py-1 rounded-lg text-sm bg-indigo-50 text-indigo-700">
-                    {PAY_UA[g.payment] || g.payment}
-                  </span>
+                  {/* Спосіб оплати */}
+                  <div>
+                    <select
+                      value={order.items[0].payment_method || PAY_METHODS[0]}
+                      onChange={(e) =>
+                        updateOrderHeader(order, { payment_method: e.target.value })
+                      }
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        border: '1px solid #d1d5db',
+                      }}
+                    >
+                      {PAY_METHODS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                  {/* ТТН */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted">ТТН:</span>
+                  {/* TTN */}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span>ТТН:</span>
                     <input
-                      className="input input-xs w-[200px]"
-                      defaultValue={g.ttn}
-                      onBlur={e => updateTTN(g.order_no, e.target.value.trim())}
-                      placeholder="Введіть номер…"
+                      defaultValue={order.items[0].ttn || ''}
+                      onBlur={(e) => updateOrderHeader(order, { ttn: e.target.value })}
+                      placeholder="Введіть номер..."
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        border: '1px solid #d1d5db',
+                        minWidth: 220,
+                      }}
                     />
                   </div>
                 </div>
-              </div>
 
-              {/* Одержувач/адреса */}
-              <div className="text-sm flex flex-col md:flex-row md:flex-wrap gap-y-1 gap-x-3">
-                <div>
-                  <span className="text-muted">Одержувач:&nbsp;</span>
-                  <span className="font-medium">{g.recipient_name || '—'}</span>
-                  <span className="text-muted">&nbsp;•&nbsp;</span>
-                  <span className="font-medium">{g.recipient_phone || '—'}</span>
-                </div>
-                <div className="hidden md:block text-muted">•</div>
-                <div>
-                  <span className="text-muted">Нас. пункт:&nbsp;</span>
-                  <span className="font-medium">{g.settlement || '—'}</span>
-                </div>
-                <div className="hidden md:block text-muted">•</div>
-                <div>
-                  <span className="text-muted">Відділення:&nbsp;</span>
-                  <span className="font-medium">{g.branch || '—'}</span>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => markAllPaid(order)}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 8,
+                      background: '#16a34a',
+                      color: '#fff',
+                      border: 'none',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title="Позначити всі позиції замовлення як виплачені"
+                  >
+                    Виплатити все
+                  </button>
                 </div>
               </div>
 
-              {/* Коментар (якщо є) */}
-              {g.comment && (
-                <div className="text-sm">
-                  <span className="text-muted">Коментар:&nbsp;</span>
-                  <span className="font-medium whitespace-pre-wrap">{g.comment}</span>
-                </div>
-              )}
-
-              {/* Лінії (товари) */}
-              <div className="rounded-xl border border-slate-100">
-                {g.lines.map((r, idx) => {
-                  const p = r.product || {}
-                  const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-                  const unitDrop = Number(p.price_dropship ?? 0)
-                  const qty = Number(r.qty || 1)
-                  const perLinePayout = g.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
-                  return (
-                    <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
-                      <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
-                        {p.image_url && <img src={p.image_url} className="w-full h-full object-cover" alt="" />}
+              {/* Items */}
+              <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+                {order.items.map((it) => (
+                  <div
+                    key={it.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '80px 1fr auto',
+                      gap: 12,
+                      padding: 12,
+                      borderRadius: 10,
+                      border: '1px solid #eee',
+                      background: '#fafafa',
+                    }}
+                  >
+                    <div>
+                      {it.image_url ? (
+                        <img
+                          src={it.image_url}
+                          alt=""
+                          style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 8 }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: 80,
+                            height: 60,
+                            borderRadius: 8,
+                            background: '#e5e7eb',
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div style={{ display: 'grid', gap: 4 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {it.name || 'Товар'} {it.sku ? `(${it.sku})` : ''}
                       </div>
-                      <div className="flex-1 min-w-0 max-w-full">
-                        <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 break-words whitespace-normal leading-snug">{p.name || '—'}</Link>
-                        <div className="text-muted text-sm">К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm text-muted">До виплати</div>
-                        <div className="font-semibold">{perLinePayout.toFixed(2)} ₴</div>
+                      <div style={{ color: '#6b7280' }}>
+                        К-ть: {it.qty ?? 1} • Ціна/шт: {fmtMoney(it.my_price ?? it.price ?? 0)}
                       </div>
                     </div>
-                  )
-                })}
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>До виплати</div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        defaultValue={String(it.payout_total ?? 0)}
+                        onBlur={(e) =>
+                          updateRow(it.id, { payout_total: Number(e.target.value || 0) })
+                        }
+                        style={{
+                          width: 120,
+                          padding: '6px 8px',
+                          borderRadius: 8,
+                          border: '1px solid #d1d5db',
+                          textAlign: 'right',
+                        }}
+                      />
+                      <div style={{ marginTop: 6 }}>
+                        <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!it.payout_paid}
+                            onChange={async (e) => {
+                              await updateRow(it.id, { payout_paid: e.target.checked });
+                              fetchOrders();
+                            }}
+                          />
+                          <span>Виплачено</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              {/* Разом по замовленню */}
-              <div className="mt-3 text-right">
-                <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
-                <span className="price text-[18px] font-semibold">{g.payout.toFixed(2)} ₴</span>
+              {/* Footer total */}
+              <div
+                style={{
+                  marginTop: 12,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  fontWeight: 700,
+                  fontSize: 18,
+                }}
+              >
+                Разом до виплати: {fmtMoney(sumPayout)}
               </div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {groups.length > 0 && (
-        <div className="mt-4 text-right">
-          <div className="text-[18px]">
-            Всього до виплати по вибірці:&nbsp;
-            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
-          </div>
-        </div>
-      )}
+          );
+        })}
     </div>
-  )
+  );
 }
