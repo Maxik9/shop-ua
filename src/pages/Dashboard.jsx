@@ -1,283 +1,182 @@
-// src/pages/Dashboard.jsx
-import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../supabaseClient'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { supabase } from "../supabaseClient";
 
-const STATUS_UA = {
-  pending: 'Нове',
-  processing: 'В обробці',
-  ordered: 'Замовлено',
-  shipped: 'Відправлено',
-  delivered: 'Доставлено',
-  canceled: 'Скасовано',
+const CURRENCY = new Intl.NumberFormat("uk-UA", {
+  style: "currency",
+  currency: "UAH",
+  maximumFractionDigits: 2,
+});
+
+const STATUS_PAID_OUT = "виплачено";
+
+function money(n) {
+  const x = Number(n || 0);
+  return CURRENCY.format(isFinite(x) ? x : 0);
 }
-const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
 
-function fmtDate(ts) {
-  try {
-    const d = new Date(ts)
-    return d.toLocaleString('uk-UA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return ts
+/**
+ * Обчислюємо payout по замовленню:
+ * 1) якщо є payout_total в БД — беремо його
+ * 2) інакше:
+ *    - для післяплати (payment_method === 'cod'): (my_price - price_dropship) * qty
+ *    - для оплати по реквізитам (payment_method === 'bank'): 0
+ * Зміна поточної ціни товару на історичні розрахунки не впливає.
+ */
+function calcPayout(order) {
+  if (order?.payout_total !== null && order?.payout_total !== undefined) {
+    return Number(order.payout_total) || 0;
   }
+  const method = order?.payment_method || "cod";
+  const qty = Number(order?.qty || 1);
+  const sell = Number(order?.my_price || 0);
+  const drop =
+    Number(order?.products?.price_dropship || order?.drop_price_at_order || 0);
+
+  if (method === "bank") return 0;
+  const diff = sell - drop;
+  return qty * (isFinite(diff) ? diff : 0);
 }
 
 export default function Dashboard() {
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [q, setQ] = useState('') // пошук: ПІБ/телефон одержувача
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      setLoading(true); setError('')
-      try {
-        const { data: s } = await supabase.auth.getSession()
-        const uid = s?.session?.user?.id
-        if (!uid) throw new Error('Необхідна авторизація')
+    let mounted = true;
 
-        const { data, error } = await supabase
-          .from('orders')
-          .select(`
-            id, order_no, created_at, status, qty, my_price, ttn, payment_method,
-            recipient_name, recipient_phone, settlement, nova_poshta_branch,
-            comment,
-            product:products ( id, name, image_url, price_dropship )
-          `)
-          .eq('user_id', uid)
-          .order('created_at', { ascending: false })
+    (async () => {
+      setLoading(true);
 
-        if (error) throw error
-        if (mounted) setRows(data || [])
-      } catch (e) {
-        if (mounted) setError(e.message || 'Помилка завантаження')
-      } finally {
-        if (mounted) setLoading(false)
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (userErr || !user) {
+        setOrders([]);
+        setLoading(false);
+        return;
       }
-    })()
-    return () => { mounted = false }
-  }, [])
 
-  // Групування рядків по одному замовленню (order_no)
-  const grouped = useMemo(() => {
-    const map = new Map()
-    for (const r of rows) {
-      const key = r.order_no || r.id
-      if (!map.has(key)) map.set(key, [])
-      map.get(key).push(r)
-    }
-    const list = Array.from(map.entries()).map(([order_no, lines]) => {
-      const first = lines[0]
-      const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
-      const payment = first?.payment_method || 'cod'
-      const payout =
-        payment === 'bank'
-          ? 0
-          : lines.reduce((s, r) => {
-              const p = r.product || {}
-              const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-              const unitDrop = Number(p.price_dropship ?? 0)
-              return s + (unitSale - unitDrop) * Number(r.qty || 1)
-            }, 0)
-      return {
-        order_no,
-        created_at: first?.created_at,
-        recipient_name: first?.recipient_name,
-        recipient_phone: first?.recipient_phone,
-        settlement: first?.settlement || '',
-        branch: first?.nova_poshta_branch || '',
-        ttn: first?.ttn || '',
-        comment: first?.comment || '',
-        status,
-        payment,
-        payout,
-        lines,
+      // тягнемо замовлення юзера + дані товару для фото/назви/дроп-ціни
+      const { data, error } = await supabase
+        .from("orders")
+        .select(
+          `
+            id, order_no, created_at, status, ttn,
+            payment_method, qty, my_price, comment,
+            product_id,
+            products:id_product (id, name, image_url, price_dropship)
+          `
+        )
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (!mounted) return;
+
+      if (error) {
+        console.error(error);
+        setOrders([]);
+      } else {
+        // вирівнюємо поле products (через alias id_product в select)
+        const normalized =
+          data?.map((o) => ({
+            ...o,
+            products: o["products"] || o["id_product"] || null,
+          })) || [];
+        setOrders(normalized);
       }
-    })
-    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-  }, [rows])
+      setLoading(false);
+    })();
 
-  // Пошук по ПІБ/телефону одержувача
-  const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase()
-    if (!t) return grouped
-    return grouped.filter(
-      g =>
-        (g.recipient_name || '').toLowerCase().includes(t) ||
-        (g.recipient_phone || '').toLowerCase().includes(t)
-    )
-  }, [grouped, q])
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-  const totalPayout = useMemo(
-    () => filtered.reduce((s, g) => s + g.payout, 0),
-    [filtered]
-  )
+  // Баланс: сума payout по замовленнях, що НЕ "виплачено"
+  const balance = useMemo(() => {
+    return orders
+      .filter((o) => (o.status || "").toLowerCase() !== STATUS_PAID_OUT)
+      .reduce((sum, o) => sum + calcPayout(o), 0);
+  }, [orders]);
 
   return (
-    <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
-      {/* Шапка + пошук */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-        <h1 className="h1">Мої замовлення</h1>
-        <div className="flex items-center gap-2">
-          <input
-            className="input input-xs w-[260px] sm:w-[320px]"
-            placeholder="Пошук: ПІБ або телефон одержувача…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <Link to="/" className="btn-outline">До каталогу</Link>
+    <div className="px-4 sm:px-6 lg:px-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold tracking-tight">Мої замовлення</h1>
+        <div className="text-lg">
+          Сума до виплати:&nbsp;
+          <span className="font-semibold">{money(balance)}</span>
         </div>
       </div>
 
-      {loading && (
-        <div className="card"><div className="card-body">Завантаження…</div></div>
-      )}
-      {error && (
-        <div className="card mb-4">
-          <div className="card-body">
-            <div className="h2 mb-2">Помилка</div>
-            <div className="text-muted">{error}</div>
-          </div>
-        </div>
-      )}
-      {!loading && !error && filtered.length === 0 && (
-        <div className="card"><div className="card-body text-muted">Нічого не знайдено.</div></div>
-      )}
+      {loading ? (
+        <p>Завантаження…</p>
+      ) : orders.length === 0 ? (
+        <p>Замовлень ще немає.</p>
+      ) : (
+        <div className="space-y-6">
+          {orders.map((o) => {
+            const p = o.products || {};
+            const payout = calcPayout(o);
 
-      <div className="space-y-3">
-        {filtered.map((order) => (
-          <div key={order.order_no} className="card">
-            <div className="p-4">
-              {/* Верхній ряд замовлення */}
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm text-muted">№</div>
-                  <div className="text-[18px] font-semibold">{order.order_no}</div>
-                  <div className="hidden sm:block text-muted">•</div>
-                  <div className="text-sm text-muted">{fmtDate(order.created_at)}</div>
+            return (
+              <div
+                key={o.id}
+                className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-center justify-between text-sm text-gray-500">
+                  <div>
+                    № <span className="font-medium">{o.order_no}</span>
+                    <span className="mx-2">•</span>
+                    {new Date(o.created_at).toLocaleString("uk-UA")}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium">
+                      {(o.status || "").charAt(0).toUpperCase() +
+                        (o.status || "").slice(1)}
+                    </span>
+                    <span className="inline-flex items-center rounded-lg bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">
+                      Оплата: {o.payment_method === "bank" ? "Реквізити" : "Післяплата"}
+                    </span>
+                    <span className="text-gray-400">ТТН: {o.ttn || "—"}</span>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2 py-1 rounded-lg text-sm bg-slate-100 text-slate-700">
-                    {STATUS_UA[order.status] ?? order.status}
-                  </span>
-                  <span className="px-2 py-1 rounded-lg text-sm bg-indigo-50 text-indigo-700">
-                    Оплата: {PAY_UA[order.payment] || order.payment}
-                  </span>
-                  <span className="text-sm">
-                    <span className="text-muted">ТТН:&nbsp;</span>
-                    <span className="font-medium">{order.ttn || '—'}</span>
-                  </span>
-                </div>
-              </div>
 
-              {/* Одержувач / Адреса */}
-              <div className="mb-2 text-sm flex flex-col sm:flex-row sm:flex-wrap gap-y-1 gap-x-3">
-                <div>
-                  <span className="text-muted">Одержувач:&nbsp;</span>
-                  <span className="font-medium">{order.recipient_name || '—'}</span>
-                  <span className="text-muted">&nbsp;•&nbsp;</span>
-                  <span className="font-medium">{order.recipient_phone || '—'}</span>
-                </div>
-                <div className="hidden sm:block text-muted">•</div>
-                <div>
-                  <span className="text-muted">Нас. пункт:&nbsp;</span>
-                  <span className="font-medium">{order.settlement || '—'}</span>
-                </div>
-                <div className="hidden sm:block text-muted">•</div>
-                <div>
-                  <span className="text-muted">Відділення:&nbsp;</span>
-                  <span className="font-medium">{order.branch || '—'}</span>
-                </div>
-              </div>
-
-              {/* Коментар */}
-              {order.comment && (
-                <div className="text-sm mb-3">
-                  <span className="text-muted">Коментар:&nbsp;</span>
-                  <span className="font-medium whitespace-pre-wrap">{order.comment}</span>
-                </div>
-              )}
-
-              {/* Лінії замовлення */}
-              <div className="rounded-xl border border-slate-100">
-                {order.lines.map((r, idx) => {
-                  const p = r.product || {}
-                  const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-                  const unitDrop = Number(p.price_dropship ?? 0)
-                  const qty = Number(r.qty || 1)
-                  const perLinePayout =
-                    order.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
-
-                  return (
-                    <div
-                      key={r.id}
-                      className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${
-                        idx > 0 ? 'border-t border-slate-100' : ''
-                      }`}
+                <div className="mt-4 flex gap-4">
+                  <img
+                    src={p?.image_url || "/placeholder.png"}
+                    alt={p?.name || "product"}
+                    className="h-20 w-20 rounded-lg object-cover ring-1 ring-gray-200"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <Link
+                      to={`/product/${p?.id || o.product_id}`}
+                      className="font-medium hover:underline"
                     >
-                      {/* Прев'ю: ПРИХОВАНЕ на мобілці, видиме з sm і вище */}
-                      <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
-                        {p.image_url && (
-                          <img
-                            src={p.image_url}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        )}
-                      </div>
-
-                      {/* Назва як посилання на карточку товару */}
-                      <div className="flex-1 min-w-0">
-                        <Link
-                          to={`/product/${p.id}`}
-                          className="font-medium hover:text-indigo-600 truncate block"
-                          title={p.name}
-                        >
-                          {p.name || '—'}
-                        </Link>
-                        <div className="text-muted text-sm">
-                          К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-sm text-muted">До виплати</div>
-                        <div className="font-semibold">
-                          {perLinePayout.toFixed(2)} ₴
-                        </div>
-                      </div>
+                      {p?.name || "Товар"}
+                    </Link>
+                    <div className="mt-1 text-sm text-gray-600">
+                      К-ть: {o.qty || 1} • Ціна/шт: {money(o.my_price)}
                     </div>
-                  )
-                })}
-              </div>
+                  </div>
 
-              {/* Разом */}
-              <div className="mt-3 text-right">
-                <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
-                <span className="price text-[18px] font-semibold">
-                  {order.payout.toFixed(2)} ₴
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+                  <div className="text-right">
+                    <div className="text-sm text-gray-500">До виплати</div>
+                    <div className="text-lg font-semibold">{money(payout)}</div>
+                  </div>
+                </div>
 
-      {filtered.length > 0 && (
-        <div className="mt-4 text-right">
-          <div className="text-[18px]">
-            Всього до виплати по вибірці:&nbsp;
-            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
-          </div>
+                <div className="mt-4 text-right">
+                  <span className="text-sm text-gray-500">Разом до виплати: </span>
+                  <span className="text-lg font-bold">{money(payout)}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
-  )
+  );
 }
