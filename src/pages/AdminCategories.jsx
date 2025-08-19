@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase"; // ← fixed: relative path (src/pages -> src/lib)
+import { supabase } from "../supabaseClient"; // fixed path: src/pages -> src/supabaseClient.js
 
-// Допоміжна: перемістити елемент масиву з індексу from у позицію to
 function move(arr, from, to) {
   const copy = arr.slice();
   const [item] = copy.splice(from, 1);
