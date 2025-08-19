@@ -40,7 +40,7 @@ export default function AdminImport(){
   const [busy, setBusy] = useState(false);
 
   // Для імпорту YML/XML
-  const [ymlUrl, setYmlUrl] = useState('');
+  const [ymlUrl, setYmlUrl] = useState('https://www.shopeditor.com.ua/se_files/dropostore3EE755DD3639.xml');
   const [ymlImportMsg, setYmlImportMsg] = useState('');
   const [ymlImportErr, setYmlImportErr] = useState('');
   const [ymlImportBusy, setYmlImportBusy] = useState(false);
@@ -170,7 +170,7 @@ export default function AdminImport(){
     setYmlImportBusy(true);
     try {
       // Тут вам потрібно буде вставити URL вашої Edge Function, коли ви її розгорнете
-      const functionUrl = 'https://oqfrhvgzwstoxabttqno.supabase.co/functions/v1/import-from-feed; // ЗАМІНИТИ НА РЕАЛЬНИЙ URL
+      const functionUrl = 'https://oqfrhvgzwstoxabttqno.supabase.co/functions/v1/import-from-feed'; // Ось так має виглядати правильна адреса
       const response = await fetch(functionUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
