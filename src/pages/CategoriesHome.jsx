@@ -9,7 +9,7 @@ export default function CategoriesHome() {
   useEffect(() => {
     ;(async () => {
       const { data, error } = await supabase
-        .from('categories')
+        .from('categories_nonempty_full')
         .select('*')
         .is('parent_id', null)
         .order('sort_order', { ascending: true })

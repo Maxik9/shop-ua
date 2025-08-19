@@ -18,7 +18,7 @@ export default function Catalog() {
   /* 1) завантаження категорій */
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('categories').select('*').order('name', { ascending: true })
+      const { data } = await supabase.from('categories_nonempty_full').select('*').order('sort_order', { ascending: true }).order('name', { ascending: true })
       setCategories(data || [])
     })()
   }, [])

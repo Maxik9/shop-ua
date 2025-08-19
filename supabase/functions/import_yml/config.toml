@@ -1,1 +1,4 @@
 verify_jwt = false
+
+[functions.import_yml.schedule]
+cron = "0 */2 * * *"

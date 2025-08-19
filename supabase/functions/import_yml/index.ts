@@ -1,210 +1,185 @@
 // supabase/functions/import_yml/index.ts
-// Import YML/XML by URL -> upsert categories & products
-// Auth: 
-// 1) Preferred: Bearer user token (must be admin via public.is_admin).
-// 2) Fallback: X-Import-Token header must equal IMPORT_SECRET (set via supabase secrets).
+// Import rules (final):
+// - EXISTING products (by SKU): update ONLY `in_stock`
+// - NEW products: insert with all fields (name, sku, price_dropship, in_stock, image_url, gallery_json, description, category_id)
+//   If category not present in XML or couldn't be mapped -> insert with category_id = NULL
+// - NO category backfill for existing products
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.3";
-import { XMLParser } from "https://esm.sh/fast-xml-parser@4.5.0";
+import * as xml2js from "https://esm.sh/xml2js@0.6.2";
 
-type Cat = { "@_id": string; "#text": string };
-type Offer = {
-  "@_id"?: string;
-  "@_available"?: string | boolean;
-  url?: string;
-  price?: string | number | null;
-  oldprice?: string | number | null;
-  currencyId?: string;
-  categoryId?: string;
-  name?: string;
-  description?: string;
-  vendor?: string;
-  vendorCode?: string;
-  picture?: string[] | string | null;
-};
-type Yml = {
-  yml_catalog?: {
-    shop?: {
-      categories?: { category?: Cat[] };
-      offers?: { offer?: Offer[] };
-    };
-  };
-};
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const IMPORT_SECRET = Deno.env.get("IMPORT_SECRET") || "";
 
-function slugify(input: string) {
-  return String(input || "")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9\u0400-\u04FF]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase()
-    .slice(0, 120);
-}
-function toArray(p: string[] | string | null | undefined): string[] {
-  if (!p) return [];
-  return Array.isArray(p) ? p.filter(Boolean) : [p].filter(Boolean);
-}
-function toNumber(x: unknown): number | null {
-  if (x == null || x === "") return null;
-  const n = Number(String(x).replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+const db = createClient(SUPABASE_URL, SERVICE_KEY);
+
+function reply(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
 }
 
 Deno.serve(async (req) => {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers":
-          "authorization, x-client-info, apikey, content-type, x-import-token",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-      },
-    });
-  }
-
   try {
-    if (req.method !== "POST") return j({ error: "Use POST" }, 405);
-    const { url } = await req.json().catch(() => ({}));
-    if (!url || typeof url !== "string") return j({ error: "Body must be { url }" }, 400);
-
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const IMPORT_SECRET = Deno.env.get("IMPORT_SECRET") || "";
-
-    if (!SUPABASE_URL || !SERVICE_ROLE) return j({ error: "Missing Supabase env" }, 500);
-
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const tokenSecret = req.headers.get("X-Import-Token") ?? "";
-
-    let isAdmin = false;
-    if (authHeader) {
-      // Verify user token and role via RPC
-      const authClient = createClient(SUPABASE_URL, ANON_KEY, {
-        global: { headers: { Authorization: authHeader } },
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-import-token",
+        },
       });
-      const { data: userRes } = await authClient.auth.getUser();
-      const uid = userRes?.user?.id;
-      if (uid) {
-        const { data: ok } = await authClient.rpc("is_admin", { u: uid });
-        isAdmin = Boolean(ok);
+    }
+
+    if (req.method !== "POST") return reply(405, { ok: false, error: "Use POST" });
+
+    // Allow either X-Import-Token or Authorization (when gateway enforces JWT)
+    const secret = req.headers.get("x-import-token") || req.headers.get("X-Import-Token");
+    const hasAuth = !!req.headers.get("authorization");
+    if (IMPORT_SECRET && secret !== IMPORT_SECRET && !hasAuth) {
+      return reply(401, { ok: false, error: "Missing or invalid token" });
+    }
+
+    // Feed URL
+    const u = new URL(req.url);
+    let feedUrl = u.searchParams.get("url") || "";
+    if (!feedUrl) {
+      const body = await req.json().catch(() => ({}));
+      if (body?.url) feedUrl = String(body.url);
+    }
+    if (!feedUrl) return reply(400, { ok: false, error: "Missing url parameter" });
+
+    // Fetch XML
+    const resp = await fetch(feedUrl);
+    if (!resp.ok) return reply(502, { ok: false, error: `Fetch ${resp.status}` });
+    const xmlText = await resp.text();
+
+    // Parse XML
+    const parser = new xml2js.Parser({ explicitArray: true, trim: true });
+    const parsed = await parser.parseStringPromise(xmlText);
+
+    const cats = parsed?.yml_catalog?.shop?.[0]?.categories?.[0]?.category || [];
+    const offers = parsed?.yml_catalog?.shop?.[0]?.offers?.[0]?.offer || [];
+
+    // Map categoryId -> categoryName (from feed)
+    const catIdToName: Map<string, string> = new Map();
+    for (const c of cats) {
+      const id = c?.$?.id ? String(c.$.id) : "";
+      const name = (c?._ ?? "").toString().trim();
+      if (id && name) catIdToName.set(id, name);
+    }
+
+    // Upsert categories by name (so id exists if present). Safe if already present.
+    if (catIdToName.size) {
+      const uniqueNames = Array.from(new Set(Array.from(catIdToName.values())));
+      const payload = uniqueNames.map((name) => ({ name }));
+      const { error: upErr } = await db.from("categories").upsert(payload, { onConflict: "name" });
+      if (upErr) return reply(500, { ok: false, error: "Categories upsert failed: " + upErr.message });
+    }
+
+    // name(lower) -> id (case-insensitive lookup)
+    const { data: catRows, error: catErr } = await db.from("categories").select("id, name");
+    if (catErr) return reply(500, { ok: false, error: catErr.message });
+    const catNameToId = new Map<string, string>(
+      (catRows || []).map((r: any) => [String(r.name).trim().toLowerCase(), r.id])
+    );
+
+    type Item = {
+      sku: string;
+      available: boolean;
+      name: string;
+      price: number;
+      pictures: string[];
+      image: string | null;
+      description: string | null;
+      category_id: string | null;
+    };
+
+    const items: Item[] = offers.map((off: any) => {
+      const id  = off?.$?.id ? String(off.$.id) : "";
+      const sku = (off?.vendorCode?.[0]?.toString().trim()) || (id ? `yml-${id}` : "");
+      const available = String(off?.$?.available ?? "true").toLowerCase() === "true";
+      const name = off?.name?.[0]?.toString().trim() || "";
+      const price = Number(String(off?.price?.[0] ?? "").replace(",", ".")) || 0;
+      const pictures: string[] = Array.isArray(off?.picture)
+        ? off.picture.map((p: any) => String(p).trim()).filter(Boolean)
+        : [];
+      const image = pictures[0] ?? null;
+      const description = off?.description?.[0]?.toString() ?? null;
+
+      const xmlCatId = off?.categoryId?.[0] ? String(off.categoryId[0]) : "";
+      const catName = xmlCatId ? (catIdToName.get(xmlCatId) || "") : "";
+      const category_id = catName ? (catNameToId.get(catName.trim().toLowerCase()) || null) : null;
+
+      return { sku, available, name, price, pictures, image, description, category_id };
+    }).filter((x: Item) => x.sku);
+
+    if (!items.length) return reply(200, { ok: true, offers: 0, message: "No offers" });
+
+    // Load existing SKUs
+    const skus = items.map(i => i.sku);
+    const { data: existing, error: exErr } = await db
+      .from("products")
+      .select("sku")
+      .in("sku", skus);
+    if (exErr) return reply(500, { ok: false, error: exErr.message });
+    const existSet = new Set((existing || []).map((r: any) => r.sku));
+
+    const toUpdateTrue: string[] = [];
+    const toUpdateFalse: string[] = [];
+    const toInsert: any[] = [];
+    let inserted_with_category = 0;
+    let inserted_without_category = 0;
+
+    for (const it of items) {
+      if (existSet.has(it.sku)) {
+        (it.available ? toUpdateTrue : toUpdateFalse).push(it.sku);
+      } else {
+        toInsert.push({
+          sku: it.sku,
+          name: it.name || it.sku,
+          price_dropship: it.price,
+          in_stock: it.available,
+          image_url: it.image,
+          gallery_json: it.pictures,
+          description: it.description,
+          category_id: it.category_id, // may be null
+        });
+        if (it.category_id) inserted_with_category++; else inserted_without_category++;
       }
     }
-    if (!isAdmin && IMPORT_SECRET && tokenSecret && IMPORT_SECRET == tokenSecret) {
-      isAdmin = true; // allow secret override
+
+    // Updates (ONLY in_stock)
+    if (toUpdateTrue.length) {
+      const { error } = await db.from("products").update({ in_stock: true }).in("sku", toUpdateTrue);
+      if (error) return reply(500, { ok: false, error: "Update TRUE failed: " + error.message });
     }
-    if (!isAdmin) return j({ error: "Forbidden (admin only)" }, 403);
-
-    // Admin client for writes
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-
-    // 1) Fetch XML
-    const resp = await fetch(url);
-    if (!resp.ok) return j({ error: `Fetch ${resp.status}` }, 502);
-    const xml = await resp.text();
-
-    // 2) Parse
-    const parser = new XMLParser({
-      ignoreAttributes: false,
-      attributeNamePrefix: "@_",
-      textNodeName: "#text",
-      trimValues: true,
-      allowBooleanAttributes: true,
-      parseTagValue: false,
-      parseAttributeValue: false,
-    });
-    const data = parser.parse(xml) as Yml;
-    const categoriesRaw = data?.yml_catalog?.shop?.categories?.category ?? [];
-    const offersRaw = data?.yml_catalog?.shop?.offers?.offer ?? [];
-
-    // 3) Upsert categories by slug(name)
-    const uniqSlugMap = new Map<string, string>();
-    for (const c of categoriesRaw) {
-      const nm = c?.["#text"]?.trim();
-      if (!nm) continue;
-      uniqSlugMap.set(slugify(nm), nm);
-    }
-    const slugEntries = Array.from(uniqSlugMap.entries());
-    const catSlugToId = new Map<string, string>();
-    for (let i = 0; i < slugEntries.length; i += 100) {
-      const chunk = slugEntries.slice(i, i + 100).map(([slug, name]) => ({
-        name, slug, image_url: null, sort_order: 0,
-      }));
-      const { data: rows, error } = await admin
-        .from("categories")
-        .upsert(chunk, { onConflict: "slug" })
-        .select("id, slug");
-      if (error) return j({ error: error.message }, 500);
-      rows?.forEach((r: any) => catSlugToId.set(r.slug, r.id));
-    }
-    if (catSlugToId.size === 0) {
-      const { data: rows } = await admin.from("categories").select("id, slug");
-      rows?.forEach((r: any) => catSlugToId.set(r.slug, r.id));
+    if (toUpdateFalse.length) {
+      const { error } = await db.from("products").update({ in_stock: false }).in("sku", toUpdateFalse);
+      if (error) return reply(500, { ok: false, error: "Update FALSE failed: " + error.message });
     }
 
-    // 4) Upsert products by sku
-    let total = 0, failed = 0;
-    const catsById = new Map(categoriesRaw.map((c) => [String(c["@_id"]), c["#text"]]));
-    for (let i = 0; i < offersRaw.length; i += 100) {
-      const batch = offersRaw.slice(i, i + 100);
-      const rows = batch.map((o) => {
-        const offerId = String(o?.["@_id"] ?? "");
-        const availRaw = String(o?.["@_available"] ?? "true").toLowerCase();
-        const available = availRaw === "true";
-        const price = toNumber(o?.price) ?? 0;
-        const name = (o?.name ?? "").toString().trim();
-        const description = (o?.description ?? "").toString() || null;
-        const vendorCode = (o?.vendorCode ?? "").toString().trim();
-        const sku = vendorCode ? vendorCode : (offerId ? `yml-${offerId}` : "");
-        const pictures = toArray(o?.picture);
-        const first = pictures[0] ?? null;
-
-        const catIdText = (o?.categoryId ?? "").toString();
-        const catName = catsById.get(catIdText) as string | undefined;
-        const catSlug = catName ? slugify(catName) : null;
-        const category_id = catSlug ? (catSlugToId.get(catSlug) ?? null) : null;
-
-        return {
-          sku,
-          name,
-          description,
-          price_dropship: price,
-          in_stock: available,
-          image_url: first,
-          gallery_json: pictures, // array -> JSONB
-          category_id,
-        };
-      }).filter(r => r.sku && r.name);
-
-      if (rows.length === 0) continue;
-      const { data: up, error } = await admin
-        .from("products")
-        .upsert(rows, { onConflict: "sku" })
-        .select("id");
-      if (error) failed += rows.length;
-      else total += up?.length ?? rows.length;
+    // Inserts
+    if (toInsert.length) {
+      for (let i = 0; i < toInsert.length; i += 100) {
+        const chunk = toInsert.slice(i, i + 100);
+        const { error } = await db.from("products").insert(chunk);
+        if (error) return reply(500, { ok: false, error: "Insert failed: " + error.message });
+      }
     }
 
-    return j({
+    return reply(200, {
       ok: true,
-      categories_seen: categoriesRaw.length,
-      categories_upserted: catSlugToId.size,
-      offers_seen: offersRaw.length,
-      products_upserted: total,
-      products_failed: failed,
+      offers: items.length,
+      updated_true: toUpdateTrue.length,
+      updated_false: toUpdateFalse.length,
+      inserted: toInsert.length,
+      inserted_with_category,
+      inserted_without_category
     });
   } catch (e) {
-    return j({ error: String((e as any)?.message ?? e) }, 500);
+    return reply(500, { ok: false, error: String((e as any)?.message ?? e) });
   }
 });
-
-function j(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-    },
-  });
-}

@@ -17,7 +17,7 @@ export default function CategoryPage() {
       setLoading(true)
       const [{ data: c }, { data: childs }, { data: prods }] = await Promise.all([
         supabase.from('categories').select('*').eq('id', id).single(),
-        supabase.from('categories').select('*').eq('parent_id', id).order('sort_order').order('name'),
+        supabase.from('categories_nonempty_full').select('*').eq('parent_id', id).order('sort_order').order('name'),
         // ГОЛОВНЕ: спочатку in_stock DESC, далі created_at DESC
         supabase.from('products').select('*').eq('category_id', id)
           .order('in_stock', { ascending: false })
