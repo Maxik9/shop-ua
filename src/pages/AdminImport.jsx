@@ -169,27 +169,22 @@ export default function AdminImport(){
     }
     setYmlImportBusy(true);
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
-        throw new Error('Ви не авторизовані для імпорту.');
-      }
-    
-      const functionUrl = 'https://oqfrhvgzwstoxabttqno.supabase.co/functions/v1/import-from-feed'; 
-    
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ url }),
+      // Тут використовується вбудований метод Supabase, що вирішує проблеми з CORS
+      const { data, error } = await supabase.functions.invoke('import-from-feed', {
+        body: { url },
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Помилка імпорту');
+      
+      if (error) {
+        throw error;
       }
-      setYmlImportMsg(data.message);
+
+      if (data && data.error) {
+        throw new Error(data.error);
+      }
+    
+      setYmlImportMsg(data.message || 'Імпорт успішно завершено!');
     } catch (e) {
+      console.error(e);
       setYmlImportErr(e.message || 'Помилка при запиті до Edge Function');
     } finally {
       setYmlImportBusy(false);
