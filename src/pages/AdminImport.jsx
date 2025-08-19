@@ -170,7 +170,7 @@ export default function AdminImport(){
     setYmlImportBusy(true);
     try {
       // Тут вам потрібно буде вставити URL вашої Edge Function, коли ви її розгорнете
-      const functionUrl = 'https://supabase.com/dashboard/project/oqfrhvgzwstoxabttqno/functions; // ЗАМІНИТИ НА РЕАЛЬНИЙ URL
+      const functionUrl = 'https://oqfrhvgzwstoxabttqno.supabase.co/functions/v1/import-from-feed; // ЗАМІНИТИ НА РЕАЛЬНИЙ URL
       const response = await fetch(functionUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
