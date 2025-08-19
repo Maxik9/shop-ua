@@ -3,6 +3,8 @@ import React, { useMemo, useState } from 'react';
 import readXlsxFile from 'read-excel-file';
 import { supabase } from '../supabaseClient';
 
+const YML_URL = 'https://www.shopeditor.com.ua/se_files/dropostore3EE755DD3639.xml';
+
 const slugify = (s='') =>
   String(s).toLowerCase()
     .replace(/[\s_]+/g,'-')
@@ -120,6 +122,67 @@ export default function AdminImport(){
     return dict;
   };
 
+  const importFromYml = async () => {
+    setErr(''); setMsg('');
+    try {
+      setBusy(true);
+      const res = await fetch(YML_URL);
+      if (!res.ok) throw new Error('Не вдалося завантажити XML');
+      const text = await res.text();
+      const doc = new DOMParser().parseFromString(text, 'application/xml');
+      const categories = {};
+      doc.querySelectorAll('categories > category').forEach(c => {
+        const id = c.getAttribute('id');
+        const name = c.textContent?.trim() || '';
+        if (id && name) categories[id] = name;
+      });
+
+      const items = [];
+      doc.querySelectorAll('offer').forEach(o => {
+        const sku = o.querySelector('vendorCode')?.textContent?.trim() || o.getAttribute('id') || '';
+        if (!sku) return;
+        const name = o.querySelector('name')?.textContent?.trim() || `SKU ${sku}`;
+        const priceNode = o.querySelector('price');
+        const price_dropship = priceNode ? Number(priceNode.textContent) : null;
+        const in_stock = (o.getAttribute('available') || '').toLowerCase() === 'true';
+        const description = o.querySelector('description')?.textContent || null;
+        const pics = Array.from(o.querySelectorAll('picture')).map(p => p.textContent?.trim()).filter(Boolean);
+        const image_url = pics[0] || null;
+        const gallery_json = pics.length > 1 ? JSON.stringify(pics.slice(1)) : null;
+        const catId = o.querySelector('categoryId')?.textContent?.trim() || '';
+        const categoryName = categories[catId] || '';
+        items.push({ sku, name, price_dropship, in_stock, description, image_url, gallery_json, _categoryName: categoryName });
+      });
+
+      const dict = await ensureCategories(items.map(p => p._categoryName).filter(Boolean));
+
+      let done = 0;
+      const chunk = 100;
+      for (let i = 0; i < items.length; i += chunk) {
+        const part = items.slice(i, i + chunk).map(p => ({
+          sku: p.sku,
+          name: p.name,
+          price_dropship: p.price_dropship,
+          in_stock: p.in_stock,
+          description: p.description,
+          image_url: p.image_url,
+          gallery_json: p.gallery_json,
+          category_id: p._categoryName ? (dict[p._categoryName] || null) : null,
+        }));
+        const { error } = await supabase.from('products').upsert(part, { onConflict: 'sku' });
+        if (error) throw error;
+        done += part.length;
+      }
+
+      setMsg(`Готово! Імпортовано/оновлено: ${done} товарів з XML.`);
+    } catch (e) {
+      console.error(e);
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const doImport = async () => {
     setErr(''); setMsg('');
     if (!preview.length) { setErr('Спершу завантаж XLSX.'); return; }
@@ -165,14 +228,27 @@ export default function AdminImport(){
   return (
     <div className="container mx-auto p-4 max-w-6xl">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Імпорт XLSX</h1>
+        <h1 className="text-2xl font-semibold">Імпорт товарів</h1>
         <a className="text-blue-600 underline" href="/import_template_fixed.xlsx" download>
-          Завантажити шаблон
+          Завантажити шаблон XLSX
         </a>
       </div>
 
       {err && <div className="text-red-600 mb-3">{err}</div>}
       {msg && <div className="text-green-700 mb-3">{msg}</div>}
+
+      <div className="card mb-6">
+        <div className="card-body space-y-3">
+          <p className="text-sm text-gray-600">
+            Імпорт з YML файлу за фіксованим посиланням.
+          </p>
+          <div className="flex justify-end">
+            <button onClick={importFromYml} disabled={busy} className="btn-primary">
+              Імпорт з XML
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="card mb-6">
         <div className="card-body space-y-3">
