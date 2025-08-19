@@ -12,8 +12,27 @@ const slugify = (s) =>
     .replace(/--+/g, "-")
     .replace(/^-+|-+$/g, "");
 
+// ensure the slug is unique in DB; if taken, append -2, -3, ...
+// currentId is excluded (when editing)
+async function ensureUniqueSlug(base, currentId) {
+  let root = slugify(base) || "category";
+  let candidate = root;
+  let n = 2;
+  while (true) {
+    let q = supabase
+      .from("categories")
+      .select("id", { count: "exact", head: true })
+      .eq("slug", candidate);
+    if (currentId) q = q.neq("id", currentId);
+    const { count, error } = await q;
+    if (error) throw error;
+    if (!count || count === 0) return candidate;
+    candidate = `${root}-${n++}`;
+  }
+}
+
 export default function AdminCategoryEditor() {
-  const { id } = useParams(); // ":id" or undefined
+  const { id } = useParams();
   const navigate = useNavigate();
   const isNew = !id || id === "new";
 
@@ -32,7 +51,6 @@ export default function AdminCategoryEditor() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      // load all categories for parent select
       const { data: cats, error: e1 } = await supabase
         .from("categories")
         .select("id, name, parent_id")
@@ -67,7 +85,6 @@ export default function AdminCategoryEditor() {
   }, [id]);
 
   const parentOptions = useMemo(() => {
-    // cannot pick itself as parent
     const opts = [{ id: "", name: "— Без батьківської —" }];
     for (const c of allCats) {
       if (!isNew && c.id === id) continue;
@@ -80,26 +97,29 @@ export default function AdminCategoryEditor() {
     e.preventDefault();
     try {
       setSaving(true);
-      const payload = {
-        name: form.name.trim(),
-        slug: form.slug ? slugify(form.slug) : slugify(form.name),
-        parent_id: form.parent_id || null,
-        image_url: form.image_url || null,
-      };
-      if (!payload.name) {
+      const name = (form.name || "").trim();
+      if (!name) {
         alert("Вкажи назву");
         return;
       }
+      // unique slug
+      const desired = form.slug ? slugify(form.slug) : slugify(name);
+      const uniqueSlug = await ensureUniqueSlug(desired, isNew ? null : id);
+
+      const payload = {
+        name,
+        slug: uniqueSlug,
+        parent_id: form.parent_id || null,
+        image_url: form.image_url || null,
+      };
+
       if (isNew) {
-        // default sort_order to end of list for selected parent
         let sort_order = 0;
-        {
-          const { count } = await supabase
-            .from("categories")
-            .select("*", { count: "exact", head: true })
-            .is("parent_id", payload.parent_id);
-          sort_order = (count || 0) + 1;
-        }
+        const { count } = await supabase
+          .from("categories")
+          .select("*", { count: "exact", head: true })
+          .is("parent_id", payload.parent_id);
+        sort_order = (count || 0) + 1;
         const { data, error } = await supabase
           .from("categories")
           .insert({ ...payload, sort_order })
@@ -120,7 +140,6 @@ export default function AdminCategoryEditor() {
   }
 
   function extractStoragePath(url) {
-    // Supabase public URL format: .../storage/v1/object/public/<bucket>/<path>
     const marker = "/storage/v1/object/public/";
     const idx = (url || "").indexOf(marker);
     if (idx === -1) return null;
@@ -136,14 +155,14 @@ export default function AdminCategoryEditor() {
     if (!file) return;
     try {
       setUploading(true);
-      // Ensure we have an id: if new -> save first to get id
       let catId = id;
       if (isNew) {
-        // quick create minimal to get id
+        // need an id: create minimal record first with unique slug
         const baseName = (form.name || "Категорія").trim() || "Категорія";
+        const uniqueSlug = await ensureUniqueSlug(form.slug || baseName, null);
         const payload = {
           name: baseName,
-          slug: form.slug ? slugify(form.slug) : slugify(baseName),
+          slug: uniqueSlug,
           parent_id: form.parent_id || null,
           image_url: null,
           sort_order: 0,
@@ -160,7 +179,6 @@ export default function AdminCategoryEditor() {
       const { data: pub } = supabase.storage.from("category-images").getPublicUrl(path);
       const url = pub?.publicUrl || "";
       setForm((f) => ({ ...f, image_url: url }));
-      // save new image_url to DB if editing existing
       if (catId && !isNew) {
         await supabase.from("categories").update({ image_url: url }).eq("id", catId);
       }
@@ -178,7 +196,6 @@ export default function AdminCategoryEditor() {
     if (!ok) return;
     try {
       setDeleting(true);
-      // best-effort: видалити файл зі сторіджа, якщо є
       if (form.image_url) {
         const parsed = extractStoragePath(form.image_url);
         if (parsed && parsed.bucket === "category-images") {
@@ -227,6 +244,7 @@ export default function AdminCategoryEditor() {
             onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
             placeholder="smartfony"
           />
+          <p className="text-xs text-slate-500 mt-1">Slug має бути унікальним. Якщо зайнятий — ми автоматично додамо суфікс (<code>-2</code>, <code>-3</code>...).</p>
         </div>
 
         <div>
