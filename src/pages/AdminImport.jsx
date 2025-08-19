@@ -169,7 +169,6 @@ export default function AdminImport(){
     }
     setYmlImportBusy(true);
     try {
-      // Тут використовується вбудований метод Supabase, що вирішує проблеми з CORS
       const { data, error } = await supabase.functions.invoke('import-from-feed', {
         body: { url },
       });
