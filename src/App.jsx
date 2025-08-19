@@ -39,6 +39,26 @@ function PrivateRoute({ children }) {
   return user ? children : <Navigate to="/login" />
 }
 
+
+function AdminRoute({ children }) {
+  const [ready, setReady] = useState(false)
+  const [allowed, setAllowed] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession()
+      const user = data.session?.user
+      if (!user) { setReady(true); setAllowed(false); return }
+      const { data: ok } = await supabase.rpc('is_admin', { u: user.id })
+      setAllowed(Boolean(ok))
+      setReady(true)
+    })()
+  }, [])
+
+  if (!ready) return null
+  return allowed ? children : <Navigate to="/" />
+}
+
 export default function App() {
   return (
     <>
@@ -57,12 +77,12 @@ export default function App() {
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
 
         {/* админ */}
-        <Route path="/admin" element={<PrivateRoute><Admin /></PrivateRoute>} />
-        <Route path="/admin/orders" element={<PrivateRoute><AdminOrders /></PrivateRoute>} />
-        <Route path="/admin/products" element={<PrivateRoute><AdminProducts /></PrivateRoute>} />
-        <Route path="/admin/products/new" element={<PrivateRoute><AdminProductEditor /></PrivateRoute>} />
-        <Route path="/admin/products/:id" element={<PrivateRoute><AdminProductEditor /></PrivateRoute>} />
-        <Route path="/admin/categories" element={<PrivateRoute><AdminCategories /></PrivateRoute>} />
+        <Route path="/admin" element={<AdminRoute><Admin /></PrivateRoute>} />
+        <Route path="/admin/orders" element={<AdminRoute><AdminOrders /></PrivateRoute>} />
+        <Route path="/admin/products" element={<AdminRoute><AdminProducts /></PrivateRoute>} />
+        <Route path="/admin/products/new" element={<AdminRoute><AdminProductEditor /></PrivateRoute>} />
+        <Route path="/admin/products/:id" element={<AdminRoute><AdminProductEditor /></PrivateRoute>} />
+        <Route path="/admin/categories" element={<AdminRoute><AdminCategories /></PrivateRoute>} />
 
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
