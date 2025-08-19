@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase"; // змінити шлях, якщо у тебе інший
+import { supabase } from "../lib/supabase"; // ← fixed: relative path (src/pages -> src/lib)
 
 // Допоміжна: перемістити елемент масиву з індексу from у позицію to
 function move(arr, from, to) {
