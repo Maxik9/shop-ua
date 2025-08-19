@@ -159,9 +159,9 @@ export default function AdminImport(){
     }
   };
 
-  // Нова функція для імпорту YML/XML
   const doYmlImport = async () => {
-    setYmlImportErr(''); setYmlImportMsg('');
+    setYmlImportErr('');
+    setYmlImportMsg('');
     const url = ymlUrl.trim();
     if (!url) {
       setYmlImportErr('Будь ласка, вкажіть URL.');
@@ -169,11 +169,19 @@ export default function AdminImport(){
     }
     setYmlImportBusy(true);
     try {
-      // Тут вам потрібно буде вставити URL вашої Edge Function, коли ви її розгорнете
-      const functionUrl = 'https://oqfrhvgzwstoxabttqno.supabase.co/functions/v1/import-from-feed'; // Ось так має виглядати правильна адреса
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error('Ви не авторизовані для імпорту.');
+      }
+    
+      const functionUrl = 'https://oqfrhvgzwstoxabttqno.supabase.co/functions/v1/import-from-feed'; 
+    
       const response = await fetch(functionUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ url }),
       });
       const data = await response.json();
@@ -234,7 +242,6 @@ export default function AdminImport(){
         </div>
       </div>
       
-      {/* ІСНУЮЧИЙ БЛОК ІМПОРТУ XLSX */}
       <p className="font-semibold text-lg mb-2 mt-6">Імпорт з XLSX-файлу</p>
       <div className="card mb-6">
         <div className="card-body space-y-3">
