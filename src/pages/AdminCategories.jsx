@@ -1,34 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import React, { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase"; // змінити шлях, якщо у тебе інший
 
-/* @typedef {{id:string,name:string,parent_id:string|null,sort_order:number|null}} Category */
-const Category = undefined as any; // for JSDoc
-  id;
-  name;
-  parent_id | null;
-  sort_order: number | null;
-};
-
-function move<T>(arr, from: number, to: number) {
+// Допоміжна: перемістити елемент масиву з індексу from у позицію to
+function move(arr, from, to) {
   const copy = arr.slice();
   const [item] = copy.splice(from, 1);
   copy.splice(to, 0, item);
   return copy;
 }
 
-function Section({
-  title,
-  items,
-  onChange,
-  onSave,
-  saving,
-}: {
-  title;
-  items;
-  onChange: (items) => void;
-  onSave: () => Promise<void>;
-  saving;
-}) {
+function Section({ title, items, onChange, onSave, saving }) {
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3">
@@ -75,11 +56,11 @@ function Section({
 }
 
 export default function AdminCategories() {
-  const [top, setTop] = useState<Category[]>([]);
-  const [children, setChildren] = useState<Record<string, Category[]>>({});
+  const [top, setTop] = useState([]);
+  const [children, setChildren] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingTop, setSavingTop] = useState(false);
-  const [savingChild, setSavingChild] = useState<Record<string, boolean>>({});
+  const [savingChild, setSavingChild] = useState({});
 
   useEffect(() => {
     (async () => {
@@ -96,18 +77,17 @@ export default function AdminCategories() {
         setLoading(false);
         return;
       }
-      setTop(roots ?? []);
+      setTop(roots || []);
 
-      // preload children for each root
       const ch = {};
-      for (const r of roots ?? []) {
+      for (const r of roots || []) {
         const { data } = await supabase
           .from("categories")
           .select("id,name,parent_id,sort_order")
           .eq("parent_id", r.id)
           .order("sort_order", { ascending: true })
           .order("name", { ascending: true });
-        ch[r.id] = data ?? [];
+        ch[r.id] = data || [];
       }
       setChildren(ch);
       setLoading(false);
