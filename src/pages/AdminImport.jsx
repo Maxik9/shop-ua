@@ -1,4 +1,4 @@
-
+// src/pages/AdminImport.jsx
 import React, { useMemo, useState } from 'react';
 import readXlsxFile from 'read-excel-file';
 import { supabase } from '../supabaseClient';
@@ -38,6 +38,12 @@ export default function AdminImport(){
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Для імпорту YML/XML
+  const [ymlUrl, setYmlUrl] = useState('');
+  const [ymlImportMsg, setYmlImportMsg] = useState('');
+  const [ymlImportErr, setYmlImportErr] = useState('');
+  const [ymlImportBusy, setYmlImportBusy] = useState(false);
 
   const onFile = async (e) => {
     setErr(''); setMsg('');
@@ -153,6 +159,35 @@ export default function AdminImport(){
     }
   };
 
+  // Нова функція для імпорту YML/XML
+  const doYmlImport = async () => {
+    setYmlImportErr(''); setYmlImportMsg('');
+    const url = ymlUrl.trim();
+    if (!url) {
+      setYmlImportErr('Будь ласка, вкажіть URL.');
+      return;
+    }
+    setYmlImportBusy(true);
+    try {
+      // Тут вам потрібно буде вставити URL вашої Edge Function, коли ви її розгорнете
+      const functionUrl = 'https://supabase.com/dashboard/project/oqfrhvgzwstoxabttqno/functions; // ЗАМІНИТИ НА РЕАЛЬНИЙ URL
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Помилка імпорту');
+      }
+      setYmlImportMsg(data.message);
+    } catch (e) {
+      setYmlImportErr(e.message || 'Помилка при запиті до Edge Function');
+    } finally {
+      setYmlImportBusy(false);
+    }
+  };
+
   const columns = useMemo(() => [
     { key: 'sku', label: 'SKU' },
     { key: 'name', label: 'Назва' },
@@ -165,15 +200,42 @@ export default function AdminImport(){
   return (
     <div className="container mx-auto p-4 max-w-6xl">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Імпорт XLSX</h1>
+        <h1 className="text-2xl font-semibold">Імпорт товарів</h1>
         <a className="text-blue-600 underline" href="/import_template_fixed.xlsx" download>
-          Завантажити шаблон
+          Завантажити шаблон XLSX
         </a>
       </div>
 
-      {err && <div className="text-red-600 mb-3">{err}</div>}
-      {msg && <div className="text-green-700 mb-3">{msg}</div>}
-
+      <div className="card mb-6">
+        <div className="card-body space-y-3">
+          <p className="font-semibold text-lg mb-2">Імпорт з YML/XML за URL</p>
+          <p className="text-sm text-gray-600">
+            Вставте посилання на ваш YML/XML-файл. Наявні товари будуть оновлені, нові — додані.
+          </p>
+          <input
+            type="url"
+            value={ymlUrl}
+            onChange={e => setYmlUrl(e.target.value)}
+            className="input w-full"
+            placeholder="https://example.com/feed.xml"
+            disabled={ymlImportBusy}
+          />
+          {ymlImportErr && <div className="text-red-600 text-sm mt-1">{ymlImportErr}</div>}
+          {ymlImportMsg && <div className="text-green-700 text-sm mt-1">{ymlImportMsg}</div>}
+          <div className="flex justify-end">
+            <button
+              onClick={doYmlImport}
+              disabled={ymlImportBusy || !ymlUrl.trim()}
+              className="btn-primary"
+            >
+              {ymlImportBusy ? 'Імпортуємо...' : 'Запустити імпорт'}
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      {/* ІСНУЮЧИЙ БЛОК ІМПОРТУ XLSX */}
+      <p className="font-semibold text-lg mb-2 mt-6">Імпорт з XLSX-файлу</p>
       <div className="card mb-6">
         <div className="card-body space-y-3">
           <p className="text-sm text-gray-600">
@@ -188,6 +250,9 @@ export default function AdminImport(){
           </div>
         </div>
       </div>
+
+      {err && <div className="text-red-600 mb-3">{err}</div>}
+      {msg && <div className="text-green-700 mb-3">{msg}</div>}
 
       {!!preview.length && (
         <div className="card">
