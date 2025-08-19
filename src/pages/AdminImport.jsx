@@ -135,7 +135,7 @@ export default function AdminImport(){
 
       let done = 0;
       const chunk = 100;
-      for (let i = 0; i < preview.length; i += chunk) {
+      for (let i = 1; i < preview.length; i += chunk) {
         const part = preview.slice(i, i + chunk).map(p => ({
           sku: p.sku,
           name: p.name,
