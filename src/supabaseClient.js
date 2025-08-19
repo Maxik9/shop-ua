@@ -4,7 +4,7 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   functions: {
-    // Вкажіть тут базовий URL вашої функції
+    // Це дуже важливий рядок, він вказує на базовий URL ваших функцій
     url: 'https://oqfrhvgzwstoxabttqno.supabase.co/functions/v1',
   }
 })
