@@ -77,12 +77,12 @@ export default function App() {
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
 
         {/* админ */}
-        <Route path="/admin" element={<AdminRoute><Admin /></PrivateRoute>} />
-        <Route path="/admin/orders" element={<AdminRoute><AdminOrders /></PrivateRoute>} />
-        <Route path="/admin/products" element={<AdminRoute><AdminProducts /></PrivateRoute>} />
-        <Route path="/admin/products/new" element={<AdminRoute><AdminProductEditor /></PrivateRoute>} />
-        <Route path="/admin/products/:id" element={<AdminRoute><AdminProductEditor /></PrivateRoute>} />
-        <Route path="/admin/categories" element={<AdminRoute><AdminCategories /></PrivateRoute>} />
+        <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+        <Route path="/admin/orders" element={<AdminRoute><AdminOrders /></AdminRoute>} />
+        <Route path="/admin/products" element={<AdminRoute><AdminProducts /></AdminRoute>} />
+        <Route path="/admin/products/new" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
+        <Route path="/admin/products/:id" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
+        <Route path="/admin/categories" element={<AdminRoute><AdminCategories /></AdminRoute>} />
 
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
