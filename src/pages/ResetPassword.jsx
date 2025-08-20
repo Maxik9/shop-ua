@@ -32,8 +32,9 @@ export default function ResetPassword() {
     try {
       const { error } = await supabase.auth.updateUser({ password })
       if (error) throw error
-      setMsg('Пароль оновлено. Можете увійти з новим паролем.')
-      setTimeout(() => nav('/login'), 1200)
+      setMsg('Пароль оновлено. Зараз перенаправимо на сторінку входу…')
+      await supabase.auth.signOut()
+      nav('/login')
     } catch (e) {
       setError(e.message || 'Не вдалося оновити пароль. Спробуйте ще раз.')
     } finally {

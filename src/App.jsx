@@ -6,6 +6,7 @@ import Search from './pages/Search'
 import AdminImport from './pages/AdminImport'
 import AdminCategoryEditor from "./pages/AdminCategoryEditor";
 
+import ResetPassword   from './pages/ResetPassword'
 // публичные страницы
 import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
 import CategoryPage   from './pages/CategoryPage'     // товары категории + подкатегории
@@ -86,7 +87,11 @@ export default function App() {
         <Route path="/admin/products/:id" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
         <Route path="/admin/categories" element={<AdminRoute><AdminCategories /></AdminRoute>} />
 
-        {/* 404 → на главную */}
+        
+        {/* відновлення пароля */}
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/auth/reset-password" element={<ResetPassword />} />
+{/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
         <Route path="/search" element={<Search />} />
 	<Route path="/admin/import" element={<AdminImport/>} />

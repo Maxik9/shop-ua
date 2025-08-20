@@ -5,6 +5,8 @@ import { useNavigate, Link } from 'react-router-dom'
 
 const ENABLE_PHONE = String(import.meta.env.VITE_ENABLE_PHONE_LOGIN || 'false') === 'true'
 
+const RESET_PATH = import.meta.env.VITE_RESET_PATH || '/reset-password'
+
 export default function Login() {
   const nav = useNavigate()
   const [tab, setTab] = useState('signin') // signin | signup | phone
@@ -66,7 +68,7 @@ export default function Login() {
   async function sendResetLink() {
     setError(''); setMsg(''); setLoading(true)
     try {
-      const redirectTo = `${window.location.origin}/reset-password`
+      const redirectTo = `${window.location.origin}${RESET_PATH}`
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
       if (error) throw error
       setMsg('Лист для відновлення пароля надіслано. Перевірте вашу пошту.')
