@@ -29,7 +29,7 @@ export default function CategoriesHome() {
       {/* 2 колонки на мобільному → 3 на sm → 4 на lg */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {cats.map(c => (
-          <Link key={c.id} to={`/category/${c.slug}`} className="card hover:shadow-md transition">
+          <Link key={c.id} to={`/category/${c.id}`} className="card hover:shadow-md transition">
             <div className="card-body">
               {/* квадратне превʼю */}
               <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden mb-3">

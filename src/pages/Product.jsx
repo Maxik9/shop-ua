@@ -106,10 +106,10 @@ export default function Product() {
   }
 
   // стани
-  if (loading) return <div className="container-page mt-header">Завантаження…</div>
+  if (loading) return <div className="container-page py-6">Завантаження…</div>
   if (error) {
     return (
-      <div className="container-page mt-header">
+      <div className="container-page py-6">
         <div className="alert-error mb-4">{error}</div>
         <button type="button" onClick={backToCategory} className="btn-outline">← Назад</button>
       </div>
@@ -117,7 +117,7 @@ export default function Product() {
   }
   if (!product) {
     return (
-      <div className="container-page mt-header">
+      <div className="container-page py-6">
         <div className="mb-4">Товар не знайдено.</div>
         <button type="button" onClick={backToCategory} className="btn-outline">← Назад</button>
       </div>
@@ -129,7 +129,7 @@ export default function Product() {
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
 
   return (
-    <div className="container-page mt-header py-4 sm:py-6 overflow-x-hidden">
+    <div className="container-page py-4 sm:py-6 overflow-x-hidden">
       {/* Назад */}
       <div className="mb-3 sm:mb-4">
         <button

@@ -1,109 +1,98 @@
-import { Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { supabase } from "./supabaseClient";
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { supabase } from './supabaseClient'
+import NavBar from './components/NavBar'
+import Search from './pages/Search'
+import AdminImport from './pages/AdminImport'
+import AdminCategoryEditor from "./pages/AdminCategoryEditor";
 
-import NavBar from "./components/NavBar";
-import Dashboard from "./pages/Dashboard";
-import Login from "./pages/Login";
-import Forgot from "./pages/Forgot";
-import ResetPassword from "./pages/ResetPassword";
-import Admin from "./pages/Admin";
-import AdminOrders from "./pages/AdminOrders";
-// імпортуй сюди решту сторінок, які вже є
+// публичные страницы
+import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
+import CategoryPage   from './pages/CategoryPage'     // товары категории + подкатегории
+import Product        from './pages/Product'
+import Cart           from './pages/Cart'
+import Login          from './pages/Login'
+import About          from './pages/About'
+import Contacts       from './pages/Contacts'
 
-function PrivateRoute({ children, recovering }) {
-  const [ready, setReady] = useState(false);
-  const [user, setUser] = useState(null);
+// личный кабинет
+import Dashboard      from './pages/Dashboard'
+
+// админ
+import Admin          from './pages/Admin'            // дашборд
+import AdminOrders    from './pages/AdminOrders'
+import AdminProducts  from './pages/AdminProducts'
+import AdminProductEditor from './pages/AdminProductEditor'
+import AdminCategories from './pages/AdminCategories'
+
+
+function PrivateRoute({ children }) {
+  const [ready, setReady] = useState(false)
+  const [user, setUser]   = useState(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user || null);
-      setReady(true);
-    });
-  }, []);
+      setUser(data.session?.user || null)
+      setReady(true)
+    })
+  }, [])
 
-  if (!ready) return null;
-  if (recovering) return <Navigate to="/reset-password" />;
-  return user ? children : <Navigate to="/login" />;
+  if (!ready) return null
+  return user ? children : <Navigate to="/login" />
 }
 
-function AdminRoute({ children, recovering }) {
-  const [ready, setReady] = useState(false);
-  const [allowed, setAllowed] = useState(false);
+
+function AdminRoute({ children }) {
+  const [ready, setReady] = useState(false)
+  const [allowed, setAllowed] = useState(false)
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      const user = data.session?.user;
-      if (!user) {
-        setReady(true);
-        setAllowed(false);
-        return;
-      }
-      // приклад RPC для перевірки адміна
-      const { data: ok } = await supabase.rpc("is_admin", { u: user.id });
-      setAllowed(Boolean(ok));
-      setReady(true);
-    })();
-  }, []);
+      const { data } = await supabase.auth.getSession()
+      const user = data.session?.user
+      if (!user) { setReady(true); setAllowed(false); return }
+      const { data: ok } = await supabase.rpc('is_admin', { u: user.id })
+      setAllowed(Boolean(ok))
+      setReady(true)
+    })()
+  }, [])
 
-  if (!ready) return null;
-  if (recovering) return <Navigate to="/reset-password" />;
-  return allowed ? children : <Navigate to="/" />;
+  if (!ready) return null
+  return allowed ? children : <Navigate to="/" />
 }
 
 export default function App() {
-  const [recovering, setRecovering] = useState(false);
-
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setRecovering(true);
-      if (event === "USER_UPDATED" || event === "SIGNED_OUT")
-        setRecovering(false);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
   return (
     <>
       <NavBar />
       <Routes>
-        {/* публічні */}
+        {/* публичные */}
+        <Route path="/" element={<CategoriesHome />} />
+        <Route path="/category/:id" element={<CategoryPage />} />
+        <Route path="/product/:id" element={<Product />} />
+        <Route path="/cart" element={<Cart />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/forgot" element={<Forgot />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/contacts" element={<Contacts />} />
 
-        {/* приватні */}
-        <Route
-          path="/dashboard"
-          element={
-            <PrivateRoute recovering={recovering}>
-              <Dashboard />
-            </PrivateRoute>
-          }
-        />
+        {/* приватные */}
+        <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
 
-        {/* адмін */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute recovering={recovering}>
-              <Admin />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/orders"
-          element={
-            <AdminRoute recovering={recovering}>
-              <AdminOrders />
-            </AdminRoute>
-          }
-        />
+        {/* админ */}
+        <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+        <Route path="/admin/orders" element={<AdminRoute><AdminOrders /></AdminRoute>} />
+        <Route path="/admin/products" element={<AdminRoute><AdminProducts /></AdminRoute>} />
+        <Route path="/admin/products/new" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
+        <Route path="/admin/products/:id" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
+        <Route path="/admin/categories" element={<AdminRoute><AdminCategories /></AdminRoute>} />
 
-        {/* fallback */}
-        <Route path="*" element={<Navigate to="/login" />} />
+        {/* 404 → на главную */}
+        <Route path="*" element={<Navigate to="/" />} />
+        <Route path="/search" element={<Search />} />
+	<Route path="/admin/import" element={<AdminImport/>} />
+	<Route path="/admin/categories/new" element={<AdminRoute><AdminCategoryEditor /></AdminRoute>} />
+	<Route path="/admin/categories/:id" element={<AdminRoute><AdminCategoryEditor /></AdminRoute>} />
       </Routes>
     </>
-  );
+  )
 }
