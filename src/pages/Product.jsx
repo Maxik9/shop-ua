@@ -129,7 +129,7 @@ export default function Product() {
   const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
 
   return (
-    <div className="container-page py-4 sm:py-6 overflow-x-hidden">
+    <div className="container-page mt-header py-4 sm:py-6 overflow-x-hidden">
       {/* Назад */}
       <div className="mb-3 sm:mb-4">
         <button
