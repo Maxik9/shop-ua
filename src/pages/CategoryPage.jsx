@@ -1,7 +1,10 @@
 // src/pages/CategoryPage.jsx
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
+
+// імпорт твоєї готової картки товару
+import ProductCard from "../components/ProductCard"; 
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -15,11 +18,8 @@ const SORT_OPTIONS = [
   { value: "popular", label: "Популярні" },
 ];
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export default function CategoryPage() {
-  const { key } = useParams(); // може бути або slug, або UUID
+  const { key } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [category, setCategory] = useState(null);
@@ -27,21 +27,8 @@ export default function CategoryPage() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const sortParam = searchParams.get("sort");
-  const [sort, setSort] = useState(sortParam || "alpha");
-
-  useEffect(() => {
-    if (!sortParam) setSearchParams({ sort: "alpha" }, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    setSearchParams((prev) => {
-      const sp = new URLSearchParams(prev);
-      sp.set("sort", sort);
-      return sp;
-    });
-  }, [sort, setSearchParams]);
+  const sortParam = searchParams.get("sort") || "alpha";
+  const [sort, setSort] = useState(sortParam);
 
   useEffect(() => {
     let mounted = true;
@@ -49,60 +36,44 @@ export default function CategoryPage() {
     async function load() {
       setLoading(true);
 
-      // 1) шукаємо категорію або по id (UUID), або по slug
-      const isUuid = UUID_RE.test(key);
-      const query = supabase
+      // шукаємо категорію по slug
+      const { data: found, error } = await supabase
         .from("categories")
-        .select("id, name, slug, image_url, parent_id")
-        .limit(1);
+        .select("id, name, slug, image_url")
+        .eq("slug", key)
+        .maybeSingle();
 
-      const { data: found, error: catErr } = isUuid
-        ? await query.eq("id", key)
-        : await query.eq("slug", key);
-
-      if (catErr) {
-        console.error(catErr);
-        if (mounted) {
-          setCategory(null);
-          setSubcats([]);
-          setProducts([]);
-          setLoading(false);
-        }
+      if (error) {
+        console.error(error);
+        setLoading(false);
         return;
       }
-
-      const cat = found?.[0] || null;
-      if (!cat) {
-        if (mounted) {
-          setCategory(null);
-          setSubcats([]);
-          setProducts([]);
-          setLoading(false);
-        }
+      if (!found) {
+        setCategory(null);
+        setLoading(false);
         return;
       }
+      setCategory(found);
 
-      if (!mounted) return;
-      setCategory(cat);
-
-      // 2) підкатегорії (з кількістю)
-      const { data: subs, error: subErr } = await supabase.rpc(
+      // підкатегорії
+      const { data: subs } = await supabase.rpc(
         "get_subcategories_with_counts",
-        { p_parent: cat.id }
+        { p_parent: found.id }
       );
-      if (subErr) console.error(subErr);
 
-      // 3) товари з усієї піддереви з потрібним сортуванням
-      const { data: prods, error: prodErr } = await supabase.rpc(
-        "get_category_products",
-        { p_category: cat.id, p_sort: sort, p_limit: 1000, p_offset: 0 }
-      );
-      if (prodErr) console.error(prodErr);
+      // товари
+      const { data: prods } = await supabase.rpc("get_category_products", {
+        p_category: found.id,
+        p_sort: sort,
+        p_limit: 1000,
+        p_offset: 0,
+      });
 
-      if (!mounted) return;
-      setSubcats(subs || []);
-      setProducts(prods || []);
-      setLoading(false);
+      if (mounted) {
+        setSubcats(subs || []);
+        setProducts(prods || []);
+        setLoading(false);
+      }
     }
 
     load();
@@ -111,138 +82,67 @@ export default function CategoryPage() {
     };
   }, [key, sort]);
 
-  const title = useMemo(() => category?.name || "Категорія", [category]);
-
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold mb-6">{title}</h1>
-        <div>Завантаження…</div>
-      </div>
-    );
-  }
-
-  if (!category) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-extrabold tracking-tight mb-2">
-          Категорію не знайдено
-        </h1>
-        <p className="text-gray-600">Перевір, будь ласка, адресу.</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="container-page">Завантаження…</div>;
+  if (!category) return <div className="container-page">Категорію не знайдено</div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Заголовок + сортування */}
-      <div className="flex items-center justify-between gap-4 mb-6">
-        <h1 className="text-3xl font-extrabold tracking-tight">{title}</h1>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Сортувати:</label>
-          <select
-            className="border rounded-md px-3 py-2 text-sm"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
+    <div className="container-page my-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="h1">{category.name}</h1>
+        <select
+          className="border rounded px-3 py-1"
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Підкатегорії */}
+      {/* підкатегорії */}
       {subcats?.length > 0 && (
-        <>
-          <h2 className="text-xl font-semibold mb-3">Підкатегорії</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
+        <div className="mb-8">
+          <h2 className="h2 mb-3">Підкатегорії</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {subcats.map((c) => (
-              <Link
-                // посилання на slug, якщо є; fallback — id
-                to={`/category/${c.slug || c.id}`}
+              <a
                 key={c.id}
-                className="group border rounded-lg overflow-hidden bg-white hover:shadow"
+                href={`/category/${c.slug || c.id}`}
+                className="card hover:shadow-md transition"
               >
-                <div className="relative aspect-[4/3] overflow-hidden bg-gray-50">
-                  <div className="absolute top-2 right-2 bg-slate-800 text-white text-xs px-2 py-1 rounded-full">
-                    {c.product_count}
+                <div className="card-body">
+                  <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden mb-3">
+                    {c.image_url && (
+                      <img
+                        src={c.image_url}
+                        alt={c.name}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
                   </div>
-                  {c.image_url ? (
-                    <img
-                      src={c.image_url}
-                      alt={c.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-                      без зображення
-                    </div>
-                  )}
+                  <div className="font-medium">{c.name}</div>
+                  <div className="text-sm text-gray-500">{c.product_count} товарів</div>
                 </div>
-                <div className="p-3 text-center font-medium">{c.name}</div>
-              </Link>
+              </a>
             ))}
           </div>
-        </>
+        </div>
       )}
 
-      {/* Товари */}
-      <h2 className="text-xl font-semibold mb-3">Товари</h2>
+      {/* товари */}
+      <h2 className="h2 mb-3">Товари</h2>
       {products?.length === 0 ? (
-        <div className="text-gray-600">У цій категорії поки немає товарів.</div>
+        <div className="text-muted">Немає товарів</div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {products.map((p) => (
-            <ProductCard key={p.id} p={p} />
+            <ProductCard key={p.id} product={p} />
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function ProductCard({ p }) {
-  const price = Number(p.price_dropship || 0);
-  return (
-    <div className="border rounded-lg bg-white overflow-hidden hover:shadow transition-shadow">
-      <div className="relative aspect-[4/3] bg-gray-50">
-        {!p.in_stock && (
-          <div className="absolute top-2 left-2 bg-gray-700 text-white text-xs px-2 py-1 rounded">
-            Немає
-          </div>
-        )}
-        {p.image_url ? (
-          <img
-            src={p.image_url}
-            alt={p.name}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">
-            без зображення
-          </div>
-        )}
-      </div>
-      <div className="p-3">
-        <div className="text-sm font-medium line-clamp-2 min-h-[2.5rem]">
-          {p.name}
-        </div>
-        <div className="mt-2 flex items-center justify-between">
-          <div className="font-bold">{price.toFixed(2)} грн</div>
-          <div
-            className={
-              "text-xs " + (p.in_stock ? "text-green-600" : "text-gray-500")
-            }
-          >
-            {p.in_stock ? "В наявності" : "Немає"}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
