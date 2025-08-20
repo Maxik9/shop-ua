@@ -27,9 +27,7 @@ body { color:#0f172a; background:#f6f7fb; }
 }
 
 /* Інпут з іконкою зліва */
-.input--with-icon {
-  padding-left:36px;
-}
+.input--with-icon { padding-left:36px; }
 
 .input:focus { outline:none; border-color:#5865f2; box-shadow:0 0 0 3px rgba(88,101,242,.15); }
 
@@ -45,20 +43,16 @@ body { color:#0f172a; background:#f6f7fb; }
 .price { font-weight:800; letter-spacing:.2px; }
 .h1 { font-size:28px; font-weight:800; letter-spacing:.2px; }
 
-/* ====== Header spacer (щоб контент не прилипав до фіксованої шапки) ====== */
+/* ====== Компактний відступ під шапкою ======
+   Робимо маленький фіксований відступ для всіх сторінок із .mt-header.
+   Якщо треба ще менше/більше — змінюй значення нижче. */
 :root {
-  --header-height: 64px;   /* мобільна висота шапки */
-  --header-gap: 16px;      /* додатковий проміжок під шапкою */
+  --spacer-top-mobile: 8px;   /* мобільний відступ */
+  --spacer-top-desktop: 8px;  /* десктоп-відступ */
 }
+
+.mt-header { margin-top: var(--spacer-top-mobile); }
 
 @media (min-width: 1024px) {
-  :root {
-    --header-height: 72px; /* висота шапки на desktop */
-    --header-gap: 8px;     /* було 20px → стало 8px */
-  }
-}
-
-/* Використовуємо один клас на сторінках з шапкою */
-.mt-header {
-  margin-top: calc(var(--header-height) + var(--header-gap));
+  .mt-header { margin-top: var(--spacer-top-desktop); }
 }
