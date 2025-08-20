@@ -1,23 +1,25 @@
+// src/pages/CategoryPage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
 
-// Створюємо клієнт (без залежності від твоїх хелперів)
-// Якщо у тебе вже є готовий supabase-клієнт — можеш імпортувати його замість цього блоку.
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 const SORT_OPTIONS = [
-  { value: "alpha", label: "За алфавітом" },        // default
+  { value: "alpha", label: "За алфавітом" },
   { value: "price_asc", label: "Ціна: за зростанням" },
   { value: "price_desc", label: "Ціна: за спаданням" },
   { value: "popular", label: "Популярні" },
 ];
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default function CategoryPage() {
-  // очікуємо, що у роуті використовується слаг категорії: /category/:slug
-  const { slug } = useParams();
+  const { key } = useParams(); // може бути або slug, або UUID
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [category, setCategory] = useState(null);
@@ -25,14 +27,11 @@ export default function CategoryPage() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // сортування зберігаємо в URL ?sort=...
   const sortParam = searchParams.get("sort");
   const [sort, setSort] = useState(sortParam || "alpha");
 
   useEffect(() => {
-    if (!sortParam) {
-      setSearchParams({ sort: "alpha" }, { replace: true });
-    }
+    if (!sortParam) setSearchParams({ sort: "alpha" }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -50,47 +49,53 @@ export default function CategoryPage() {
     async function load() {
       setLoading(true);
 
-      // 1) шукаємо категорію по slug
-      const { data: cat, error: catErr } = await supabase
+      // 1) шукаємо категорію або по id (UUID), або по slug
+      const isUuid = UUID_RE.test(key);
+      const query = supabase
         .from("categories")
         .select("id, name, slug, image_url, parent_id")
-        .eq("slug", slug)
-        .maybeSingle();
+        .limit(1);
+
+      const { data: found, error: catErr } = isUuid
+        ? await query.eq("id", key)
+        : await query.eq("slug", key);
 
       if (catErr) {
         console.error(catErr);
-        setCategory(null);
-        setLoading(false);
+        if (mounted) {
+          setCategory(null);
+          setSubcats([]);
+          setProducts([]);
+          setLoading(false);
+        }
         return;
       }
+
+      const cat = found?.[0] || null;
       if (!cat) {
-        setCategory(null);
-        setSubcats([]);
-        setProducts([]);
-        setLoading(false);
+        if (mounted) {
+          setCategory(null);
+          setSubcats([]);
+          setProducts([]);
+          setLoading(false);
+        }
         return;
       }
 
       if (!mounted) return;
-
       setCategory(cat);
 
-      // 2) підкатегорії з лічильниками
+      // 2) підкатегорії (з кількістю)
       const { data: subs, error: subErr } = await supabase.rpc(
         "get_subcategories_with_counts",
         { p_parent: cat.id }
       );
       if (subErr) console.error(subErr);
 
-      // 3) товари всієї піддереви з вибраним сортуванням
+      // 3) товари з усієї піддереви з потрібним сортуванням
       const { data: prods, error: prodErr } = await supabase.rpc(
         "get_category_products",
-        {
-          p_category: cat.id,
-          p_sort: sort, // 'alpha' | 'price_asc' | 'price_desc' | 'popular'
-          p_limit: 1000,
-          p_offset: 0,
-        }
+        { p_category: cat.id, p_sort: sort, p_limit: 1000, p_offset: 0 }
       );
       if (prodErr) console.error(prodErr);
 
@@ -101,11 +106,10 @@ export default function CategoryPage() {
     }
 
     load();
-
     return () => {
       mounted = false;
     };
-  }, [slug, sort]);
+  }, [key, sort]);
 
   const title = useMemo(() => category?.name || "Категорія", [category]);
 
@@ -121,7 +125,9 @@ export default function CategoryPage() {
   if (!category) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold mb-6">Категорію не знайдено</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight mb-2">
+          Категорію не знайдено
+        </h1>
         <p className="text-gray-600">Перевір, будь ласка, адресу.</p>
       </div>
     );
@@ -129,11 +135,9 @@ export default function CategoryPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Заголовок */}
+      {/* Заголовок + сортування */}
       <div className="flex items-center justify-between gap-4 mb-6">
         <h1 className="text-3xl font-extrabold tracking-tight">{title}</h1>
-
-        {/* Сортування */}
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-600">Сортувати:</label>
           <select
@@ -157,12 +161,12 @@ export default function CategoryPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
             {subcats.map((c) => (
               <Link
-                to={`/category/${c.slug}`}
+                // посилання на slug, якщо є; fallback — id
+                to={`/category/${c.slug || c.id}`}
                 key={c.id}
                 className="group border rounded-lg overflow-hidden bg-white hover:shadow"
               >
                 <div className="relative aspect-[4/3] overflow-hidden bg-gray-50">
-                  {/* бейдж кількості */}
                   <div className="absolute top-2 right-2 bg-slate-800 text-white text-xs px-2 py-1 rounded-full">
                     {c.product_count}
                   </div>
@@ -201,9 +205,8 @@ export default function CategoryPage() {
   );
 }
 
-/** Карточка товару (мінімальна, без залежностей від інших компонентів) */
 function ProductCard({ p }) {
-  const price = useMemo(() => Number(p.price_dropship || 0), [p.price_dropship]);
+  const price = Number(p.price_dropship || 0);
   return (
     <div className="border rounded-lg bg-white overflow-hidden hover:shadow transition-shadow">
       <div className="relative aspect-[4/3] bg-gray-50">
@@ -226,7 +229,9 @@ function ProductCard({ p }) {
         )}
       </div>
       <div className="p-3">
-        <div className="text-sm font-medium line-clamp-2 min-h-[2.5rem]">{p.name}</div>
+        <div className="text-sm font-medium line-clamp-2 min-h-[2.5rem]">
+          {p.name}
+        </div>
         <div className="mt-2 flex items-center justify-between">
           <div className="font-bold">{price.toFixed(2)} грн</div>
           <div

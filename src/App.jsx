@@ -68,7 +68,7 @@ export default function App() {
       <Routes>
         {/* публичные */}
         <Route path="/" element={<CategoriesHome />} />
-        <Route path="/category/:id" element={<CategoryPage />} />
+        <Route path="/category/:key" element={<CategoryPage />} />
         <Route path="/product/:id" element={<Product />} />
         <Route path="/cart" element={<Cart />} />
         <Route path="/login" element={<Login />} />
