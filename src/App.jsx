@@ -5,6 +5,7 @@ import NavBar from './components/NavBar'
 import Search from './pages/Search'
 import AdminImport from './pages/AdminImport'
 import AdminCategoryEditor from "./pages/AdminCategoryEditor";
+import ResetPassword from './pages/ResetPassword'
 
 // публичные страницы
 import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
@@ -67,6 +68,7 @@ export default function App() {
       <NavBar />
       <Routes>
         {/* публичные */}
+	<Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<CategoriesHome />} />
         <Route path="/category/:key" element={<CategoryPage />} />
         <Route path="/product/:id" element={<Product />} />

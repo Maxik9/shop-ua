@@ -10,7 +10,7 @@ export default function Forgot() {
     e.preventDefault();
     setErr("");
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset`,
+      redirectTo: `${window.location.origin}/reset-password`,
     });
     if (error) setErr(error.message || "Не вдалося надіслати лист.");
     else setSent(true);
