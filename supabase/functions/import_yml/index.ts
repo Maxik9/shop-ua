@@ -1,185 +1,313 @@
 // supabase/functions/import_yml/index.ts
-// Import rules (final):
-// - EXISTING products (by SKU): update ONLY `in_stock`
-// - NEW products: insert with all fields (name, sku, price_dropship, in_stock, image_url, gallery_json, description, category_id)
-//   If category not present in XML or couldn't be mapped -> insert with category_id = NULL
-// - NO category backfill for existing products
+// Edge Function: YML/XML product import (Supabase + Deno)
+// - JWT: увімкнено (verify_jwt=true у config.toml) + ДОДАТКОВА перевірка X-Import-Secret
+// - Оновлюємо ТІЛЬКИ in_stock для існуючих товарів (за sku)
+// - Створюємо нові товари з усіма полями
+// - Товари, яких НЕМає у фіді — НЕ чіпаємо (не змінюємо in_stock)
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.3";
-import * as xml2js from "https://esm.sh/xml2js@0.6.2";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+type FeedCategory = { id: string; parentId: string | null; name: string };
+type FeedOffer = {
+  sku: string;
+  name: string;
+  description: string;
+  price: number | null;
+  pictures: string[];
+  in_stock: boolean;
+  categoryId: string | null;
+};
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const IMPORT_SECRET = Deno.env.get("IMPORT_SECRET") || "";
+const DEFAULT_FEED_URL = Deno.env.get("IMPORT_FEED_URL") || "";
 
-const db = createClient(SUPABASE_URL, SERVICE_KEY);
+const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
 
-function reply(status: number, body: unknown) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
+// ---------- helpers ----------
+function slugify(s: string): string {
+  return (s || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^\w-]/g, "")
+    .replace(/--+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+function textOf(el: Element | null): string {
+  return (el?.textContent ?? "").trim();
+}
+function parseBool(val: string | null | undefined): boolean | null {
+  if (val == null) return null;
+  const v = val.toLowerCase();
+  if (["true","1","yes","y","да","так","in stock","available"].includes(v)) return true;
+  if (["false","0","no","n","нет","ні","out of stock","unavailable"].includes(v)) return false;
+  return null;
+}
+function detectInStock(offerEl: Element): boolean {
+  const a = offerEl.getAttribute("available");
+  const byAttr = parseBool(a);
+  if (byAttr !== null) return byAttr;
+
+  const byTag = parseBool(textOf(offerEl.querySelector("available")));
+  if (byTag !== null) return byTag;
+
+  const q1 = Number(textOf(offerEl.querySelector("stock_quantity")));
+  if (!Number.isNaN(q1)) return q1 > 0;
+  const q2 = Number(textOf(offerEl.querySelector("quantity")));
+  if (!Number.isNaN(q2)) return q2 > 0;
+
+  const st = textOf(offerEl.querySelector("stock_status")).toLowerCase();
+  if (st) {
+    if (st.includes("в налич") || st.includes("в наяв") || st.includes("есть")) return true;
+    if (st.includes("нет в налич") || st.includes("нема") || st.includes("відсут")) return false;
+  }
+  return true; // за замовчуванням вважаємо, що є
 }
 
-Deno.serve(async (req) => {
+async function fetchXml(url: string): Promise<Document> {
+  const resp = await fetch(url, { redirect: "follow" });
+  if (!resp.ok) throw new Error(`Failed to fetch feed: ${resp.status} ${resp.statusText}`);
+  const text = await resp.text();
+  const doc = new DOMParser().parseFromString(text, "text/xml");
+  if (!doc) throw new Error("Cannot parse XML");
+  return doc;
+}
+
+function parseCategories(doc: Document): FeedCategory[] {
+  const result: FeedCategory[] = [];
+  doc.querySelectorAll("categories > category").forEach((c) => {
+    const id = c.getAttribute("id") || textOf(c.querySelector("id"));
+    if (!id) return;
+    const parentId = c.getAttribute("parentId") || c.getAttribute("parent_id") || null;
+    const name = textOf(c) || textOf(c.querySelector("name"));
+    if (!name) return;
+    result.push({ id, parentId, name });
+  });
+  return result;
+}
+
+function parseOffers(doc: Document): FeedOffer[] {
+  const res: FeedOffer[] = [];
+  doc.querySelectorAll("offers > offer").forEach((o) => {
+    const vendorCode = textOf(o.querySelector("vendorCode")) || textOf(o.querySelector("sku"));
+    const idAttr = o.getAttribute("id") || "";
+    const sku = (vendorCode || idAttr || "").trim();
+    if (!sku) return;
+
+    const name = textOf(o.querySelector("name")) || textOf(o.querySelector("model")) || sku;
+    const description =
+      textOf(o.querySelector("description")) ||
+      textOf(o.querySelector("body")) ||
+      "";
+
+    const priceStr = textOf(o.querySelector("price"));
+    const price = priceStr ? Number(priceStr.replace(",", ".").replace(/[^\d.]/g, "")) : null;
+
+    const pictures: string[] = [];
+    o.querySelectorAll("picture, images > image").forEach((p) => {
+      const u = textOf(p);
+      if (u) pictures.push(u);
+    });
+
+    const catId = textOf(o.querySelector("categoryId")) || o.getAttribute("categoryId") || null;
+
+    res.push({
+      sku,
+      name,
+      description,
+      price: price !== null && !Number.isNaN(price) ? price : null,
+      pictures,
+      in_stock: detectInStock(o),
+      categoryId: catId,
+    });
+  });
+  return res;
+}
+
+async function ensureCategoriesFromFeed(feedCats: FeedCategory[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (feedCats.length === 0) return map;
+
+  const { data: existing, error: e1 } = await supabaseAdmin
+    .from("categories")
+    .select("id, name, slug");
+  if (e1) throw e1;
+
+  const bySlug = new Map<string, string>();
+  (existing || []).forEach((c) => bySlug.set(slugify(c.slug || c.name), c.id));
+
+  const byId = new Map<string, FeedCategory>();
+  feedCats.forEach((c) => byId.set(c.id, c));
+
+  const roots = feedCats.filter((c) => !c.parentId);
+  const children = feedCats.filter((c) => !!c.parentId);
+
+  async function ensureOne(c: FeedCategory): Promise<string> {
+    const s = slugify(c.name);
+    const found = bySlug.get(s);
+    if (found) {
+      map.set(c.id, found);
+      return found;
+    }
+    const parentDbId = c.parentId ? map.get(c.parentId) ?? null : null;
+    const { data, error } = await supabaseAdmin
+      .from("categories")
+      .insert({ name: c.name, slug: s, parent_id: parentDbId, sort_order: 0 })
+      .select("id")
+      .single();
+    if (error) throw error;
+    bySlug.set(s, data.id);
+    map.set(c.id, data.id);
+    return data.id;
+  }
+
+  for (const r of roots) await ensureOne(r);
+
+  const pending = new Set(children.map((c) => c.id));
+  let safety = 0;
+  while (pending.size && safety < 10000) {
+    safety++;
+    let progressed = false;
+    for (const id of Array.from(pending)) {
+      const c = byId.get(id)!;
+      if (!c.parentId || map.has(c.parentId)) {
+        await ensureOne(c);
+        pending.delete(id);
+        progressed = true;
+      }
+    }
+    if (!progressed) break;
+  }
+
+  return map;
+}
+
+function chunk<T>(arr: T[], size = 500): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// ---------- handler ----------
+serve(async (req) => {
   try {
-    if (req.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-import-token",
-        },
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ ok: false, error: "Method Not Allowed" }), {
+        status: 405, headers: { "content-type": "application/json" },
       });
     }
 
-    if (req.method !== "POST") return reply(405, { ok: false, error: "Use POST" });
-
-    // Allow either X-Import-Token or Authorization (when gateway enforces JWT)
-    const secret = req.headers.get("x-import-token") || req.headers.get("X-Import-Token");
-    const hasAuth = !!req.headers.get("authorization");
-    if (IMPORT_SECRET && secret !== IMPORT_SECRET && !hasAuth) {
-      return reply(401, { ok: false, error: "Missing or invalid token" });
+    // додаткова перевірка нашого секрету
+    const hdrSecret = req.headers.get("x-import-secret") || "";
+    if (!IMPORT_SECRET || hdrSecret !== IMPORT_SECRET) {
+      return new Response(JSON.stringify({ ok: false, error: "forbidden" }), {
+        status: 403, headers: { "content-type": "application/json" },
+      });
     }
 
-    // Feed URL
-    const u = new URL(req.url);
-    let feedUrl = u.searchParams.get("url") || "";
-    if (!feedUrl) {
-      const body = await req.json().catch(() => ({}));
-      if (body?.url) feedUrl = String(body.url);
-    }
-    if (!feedUrl) return reply(400, { ok: false, error: "Missing url parameter" });
-
-    // Fetch XML
-    const resp = await fetch(feedUrl);
-    if (!resp.ok) return reply(502, { ok: false, error: `Fetch ${resp.status}` });
-    const xmlText = await resp.text();
-
-    // Parse XML
-    const parser = new xml2js.Parser({ explicitArray: true, trim: true });
-    const parsed = await parser.parseStringPromise(xmlText);
-
-    const cats = parsed?.yml_catalog?.shop?.[0]?.categories?.[0]?.category || [];
-    const offers = parsed?.yml_catalog?.shop?.[0]?.offers?.[0]?.offer || [];
-
-    // Map categoryId -> categoryName (from feed)
-    const catIdToName: Map<string, string> = new Map();
-    for (const c of cats) {
-      const id = c?.$?.id ? String(c.$.id) : "";
-      const name = (c?._ ?? "").toString().trim();
-      if (id && name) catIdToName.set(id, name);
+    // де взяти URL
+    let url = DEFAULT_FEED_URL;
+    try {
+      const body = await req.json();
+      if (body?.url) url = String(body.url);
+    } catch { /* порожній body — ок */ }
+    if (!url) {
+      return new Response(JSON.stringify({ ok: false, error: "Missing url parameter" }), {
+        status: 400, headers: { "content-type": "application/json" },
+      });
     }
 
-    // Upsert categories by name (so id exists if present). Safe if already present.
-    if (catIdToName.size) {
-      const uniqueNames = Array.from(new Set(Array.from(catIdToName.values())));
-      const payload = uniqueNames.map((name) => ({ name }));
-      const { error: upErr } = await db.from("categories").upsert(payload, { onConflict: "name" });
-      if (upErr) return reply(500, { ok: false, error: "Categories upsert failed: " + upErr.message });
-    }
+    // 1) фетч і парс фіда
+    const doc = await fetchXml(url);
+    const cats = parseCategories(doc);
+    const offers = parseOffers(doc);
 
-    // name(lower) -> id (case-insensitive lookup)
-    const { data: catRows, error: catErr } = await db.from("categories").select("id, name");
-    if (catErr) return reply(500, { ok: false, error: catErr.message });
-    const catNameToId = new Map<string, string>(
-      (catRows || []).map((r: any) => [String(r.name).trim().toLowerCase(), r.id])
-    );
+    // 2) гарантуємо наявність категорій (створимо відсутні)
+    const feedCatToDb = await ensureCategoriesFromFeed(cats);
 
-    type Item = {
-      sku: string;
-      available: boolean;
-      name: string;
-      price: number;
-      pictures: string[];
-      image: string | null;
-      description: string | null;
-      category_id: string | null;
-    };
+    // 3) готуємо SKU з фіда
+    const feedSkus = offers.map((o) => o.sku);
 
-    const items: Item[] = offers.map((off: any) => {
-      const id  = off?.$?.id ? String(off.$.id) : "";
-      const sku = (off?.vendorCode?.[0]?.toString().trim()) || (id ? `yml-${id}` : "");
-      const available = String(off?.$?.available ?? "true").toLowerCase() === "true";
-      const name = off?.name?.[0]?.toString().trim() || "";
-      const price = Number(String(off?.price?.[0] ?? "").replace(",", ".")) || 0;
-      const pictures: string[] = Array.isArray(off?.picture)
-        ? off.picture.map((p: any) => String(p).trim()).filter(Boolean)
-        : [];
-      const image = pictures[0] ?? null;
-      const description = off?.description?.[0]?.toString() ?? null;
-
-      const xmlCatId = off?.categoryId?.[0] ? String(off.categoryId[0]) : "";
-      const catName = xmlCatId ? (catIdToName.get(xmlCatId) || "") : "";
-      const category_id = catName ? (catNameToId.get(catName.trim().toLowerCase()) || null) : null;
-
-      return { sku, available, name, price, pictures, image, description, category_id };
-    }).filter((x: Item) => x.sku);
-
-    if (!items.length) return reply(200, { ok: true, offers: 0, message: "No offers" });
-
-    // Load existing SKUs
-    const skus = items.map(i => i.sku);
-    const { data: existing, error: exErr } = await db
+    // 4) витягуємо існуючі продукти за цими SKU
+    const { data: exist, error: epErr } = await supabaseAdmin
       .from("products")
-      .select("sku")
-      .in("sku", skus);
-    if (exErr) return reply(500, { ok: false, error: exErr.message });
-    const existSet = new Set((existing || []).map((r: any) => r.sku));
+      .select("id, sku, in_stock")
+      .in("sku", feedSkus);
+    if (epErr) throw epErr;
 
-    const toUpdateTrue: string[] = [];
-    const toUpdateFalse: string[] = [];
+    const existingBySku = new Map<string, { id: string; in_stock: boolean }>();
+    (exist || []).forEach((p) => existingBySku.set(p.sku, { id: p.id, in_stock: p.in_stock }));
+
+    // 5) формуємо оновлення та створення
+    const toUpdate: { id: string; in_stock: boolean }[] = [];
     const toInsert: any[] = [];
-    let inserted_with_category = 0;
-    let inserted_without_category = 0;
 
-    for (const it of items) {
-      if (existSet.has(it.sku)) {
-        (it.available ? toUpdateTrue : toUpdateFalse).push(it.sku);
+    for (const off of offers) {
+      const found = existingBySku.get(off.sku);
+      if (found) {
+        if (found.in_stock !== off.in_stock) {
+          toUpdate.push({ id: found.id, in_stock: off.in_stock });
+        }
       } else {
+        const image_url = off.pictures[0] || null;
+        const gallery_json = off.pictures.length ? off.pictures : [];
+        const category_id = off.categoryId ? feedCatToDb.get(off.categoryId) ?? null : null;
+
         toInsert.push({
-          sku: it.sku,
-          name: it.name || it.sku,
-          price_dropship: it.price,
-          in_stock: it.available,
-          image_url: it.image,
-          gallery_json: it.pictures,
-          description: it.description,
-          category_id: it.category_id, // may be null
+          name: off.name,
+          description: off.description || null,
+          image_url,
+          gallery_json,
+          price_dropship: off.price ?? 0,
+          sku: off.sku,
+          in_stock: off.in_stock,
+          category_id,
         });
-        if (it.category_id) inserted_with_category++; else inserted_without_category++;
       }
     }
 
-    // Updates (ONLY in_stock)
-    if (toUpdateTrue.length) {
-      const { error } = await db.from("products").update({ in_stock: true }).in("sku", toUpdateTrue);
-      if (error) return reply(500, { ok: false, error: "Update TRUE failed: " + error.message });
-    }
-    if (toUpdateFalse.length) {
-      const { error } = await db.from("products").update({ in_stock: false }).in("sku", toUpdateFalse);
-      if (error) return reply(500, { ok: false, error: "Update FALSE failed: " + error.message });
+    // 6) запис у БД
+    let created = 0;
+    let updatedStock = 0;
+
+    for (const part of chunk(toUpdate, 500)) {
+      const { error } = await supabaseAdmin.from("products").upsert(part, {
+        onConflict: "id",
+        ignoreDuplicates: false,
+      });
+      if (error) throw error;
+      updatedStock += part.length;
     }
 
-    // Inserts
-    if (toInsert.length) {
-      for (let i = 0; i < toInsert.length; i += 100) {
-        const chunk = toInsert.slice(i, i + 100);
-        const { error } = await db.from("products").insert(chunk);
-        if (error) return reply(500, { ok: false, error: "Insert failed: " + error.message });
-      }
+    for (const part of chunk(toInsert, 200)) {
+      const { error } = await supabaseAdmin.from("products").insert(part);
+      if (error) throw error;
+      created += part.length;
     }
 
-    return reply(200, {
-      ok: true,
-      offers: items.length,
-      updated_true: toUpdateTrue.length,
-      updated_false: toUpdateFalse.length,
-      inserted: toInsert.length,
-      inserted_with_category,
-      inserted_without_category
+    // 7) ВАЖЛИВО: товари, яких немає у фіді — НЕ чіпаємо!
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        url,
+        offers_in_file: offers.length,
+        created,
+        updated_stock: updatedStock,
+        note: "Products not present in feed were left untouched",
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  } catch (err) {
+    console.error(err);
+    return new Response(JSON.stringify({ ok: false, error: String(err?.message || err) }), {
+      status: 500, headers: { "content-type": "application/json" },
     });
-  } catch (e) {
-    return reply(500, { ok: false, error: String((e as any)?.message ?? e) });
   }
 });
