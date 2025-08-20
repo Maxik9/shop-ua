@@ -1,23 +1,2 @@
-# supabase/functions/import_yml/config.toml
 [functions.import_yml]
-# JWT має бути УВІМКНЕНО (як у тебе відбувається після деплою)
 verify_jwt = true
-
-# Що саме розклад надсилає у функцію
-[functions.import_yml.invoke]
-method  = "POST"
-headers = {
-  # Потрібні ДВА заголовки:
-  # 1) Authorization з anon key, щоб пройти legacy-JWT в Supabase
-  "Authorization"   = "Bearer ${ANON_KEY}",
-  # 2) Наш додатковий секрет для самої функції (у коді ми його перевіряємо)
-  "X-Import-Secret" = "${IMPORT_SECRET}",
-  "Content-Type"    = "application/json"
-}
-# Тіло запиту з твоїм лінком YML
-body = """{"url":"https://www.shopeditor.com.ua/se_files/dropostore3EE755DD3639.xml"}"""
-
-# РОЗКЛАД: кожні 2 години на :00 (UTC) — 00:00, 02:00, 04:00, ...
-[[functions.import_yml.schedules]]
-name = "every-2-hours"
-cron = "0 */2 * * *"
