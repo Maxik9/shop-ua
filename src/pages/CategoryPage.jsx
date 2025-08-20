@@ -1,13 +1,8 @@
 // src/pages/CategoryPage.jsx
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../supabaseClient";
 import ProductCard from "../components/ProductCard";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 const SORT_OPTIONS = [
   { value: "alpha", label: "За алфавітом" },
@@ -17,75 +12,84 @@ const SORT_OPTIONS = [
 ];
 
 export default function CategoryPage() {
-  const { key } = useParams(); // slug (або id як fallback)
+  const { key } = useParams();               // slug (або id — якщо десь ще є старі посилання)
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [category, setCategory] = useState(null);
-  const [subcats, setSubcats] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [category, setCategory]   = useState(null);
+  const [subcats, setSubcats]     = useState([]);
+  const [products, setProducts]   = useState([]);
+  const [loading, setLoading]     = useState(true);
 
-  // сортування — ТІЛЬКИ для товарів
+  // сортування ТІЛЬКИ для товарів
   const [sort, setSort] = useState(searchParams.get("sort") || "alpha");
   useEffect(() => {
-    setSearchParams((prev) => {
+    setSearchParams(prev => {
       const sp = new URLSearchParams(prev);
       sp.set("sort", sort);
       return sp;
     });
   }, [sort, setSearchParams]);
 
-  useEffect(() => {
-    let mounted = true;
+  // кнопка «Назад»: якщо нема історії — ведемо на головну (або постав "/catalog", якщо хочеш)
+  const goBack = () => {
+    if (window.history.state && window.history.state.idx > 0) navigate(-1);
+    else navigate("/");
+  };
 
-    async function load() {
+  useEffect(() => {
+    let alive = true;
+    (async () => {
       setLoading(true);
 
-      // категорія по slug
-      const { data: cat, error: catErr } = await supabase
+      // 1) шукаємо категорію по slug (fallback — по id)
+      const bySlug = await supabase
         .from("categories")
         .select("id, name, slug, image_url")
         .eq("slug", key)
         .maybeSingle();
 
-      if (catErr) {
-        console.error(catErr);
-        setLoading(false);
-        return;
+      let cat = bySlug.data;
+      if (!cat) {
+        const byId = await supabase
+          .from("categories")
+          .select("id, name, slug, image_url")
+          .eq("id", key)
+          .maybeSingle();
+        cat = byId.data || null;
       }
+      if (!alive) return;
+
       if (!cat) {
         setCategory(null);
+        setSubcats([]);
+        setProducts([]);
         setLoading(false);
         return;
       }
       setCategory(cat);
 
-      // підкатегорії (без показу кількості в UI)
-      const { data: subs, error: subErr } = await supabase.rpc(
+      // 2) підкатегорії (лічильники не показуємо в UI)
+      const { data: subs } = await supabase.rpc(
         "get_subcategories_with_counts",
         { p_parent: cat.id }
       );
-      if (subErr) console.error(subErr);
 
-      // товари з урахуванням сортування
-      const { data: prods, error: prodErr } = await supabase.rpc(
-        "get_category_products",
-        { p_category: cat.id, p_sort: sort, p_limit: 1000, p_offset: 0 }
-      );
-      if (prodErr) console.error(prodErr);
+      // 3) товари з урахуванням всього піддерева + сортування
+      const { data: prods } = await supabase.rpc("get_category_products", {
+        p_category: cat.id,
+        p_sort: sort,
+        p_limit: 1000,
+        p_offset: 0,
+      });
 
-      if (mounted) {
-        setSubcats(subs || []);
-        setProducts(prods || []);
-        setLoading(false);
-      }
-    }
+      if (!alive) return;
+      setSubcats(subs || []);
+      setProducts(prods || []);
+      setLoading(false);
+    })();
 
-    load();
-    return () => {
-      mounted = false;
-    };
+    return () => { alive = false; };
   }, [key, sort]);
 
   if (loading) {
@@ -99,10 +103,7 @@ export default function CategoryPage() {
   if (!category) {
     return (
       <div className="container-page my-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded border hover:bg-gray-50 mb-4"
-        >
+        <button onClick={goBack} className="inline-flex items-center gap-2 text-sm btn-outline mb-4">
           ← Назад
         </button>
         <h1 className="h1 mb-2">Категорію не знайдено</h1>
@@ -113,23 +114,20 @@ export default function CategoryPage() {
 
   return (
     <div className="container-page my-6">
-      {/* Заголовок + кнопка назад */}
+      {/* Заголовок + Назад */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="h1">{category.name}</h1>
-        <button
-          onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded border hover:bg-gray-50"
-        >
+        <button onClick={goBack} className="inline-flex items-center gap-2 text-sm btn-outline">
           ← Назад
         </button>
       </div>
 
-      {/* Підкатегорії (без кількості в підписі) */}
+      {/* Підкатегорії (картки у твоєму стилі; без кількості) */}
       {subcats?.length > 0 && (
-        <div className="mb-8">
+        <div className="mb-6">
           <h2 className="h2 mb-3">Підкатегорії</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {subcats.map((c) => (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {subcats.map(c => (
               <Link
                 key={c.id}
                 to={`/category/${c.slug || c.id}`}
@@ -138,16 +136,10 @@ export default function CategoryPage() {
                 <div className="card-body">
                   <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden mb-3">
                     {c.image_url && (
-                      <img
-                        src={c.image_url}
-                        alt={c.name}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
+                      <img src={c.image_url} alt={c.name} className="w-full h-full object-cover" loading="lazy" />
                     )}
                   </div>
                   <div className="font-medium">{c.name}</div>
-                  {/* кількість НЕ показуємо */}
                 </div>
               </Link>
             ))}
@@ -161,23 +153,21 @@ export default function CategoryPage() {
         <select
           className="border rounded px-3 py-2 text-sm"
           value={sort}
-          onChange={(e) => setSort(e.target.value)}
+          onChange={e => setSort(e.target.value)}
         >
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+          {SORT_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
       </div>
 
-      {/* Товари */}
+      {/* Товари (картка з твого проекту) */}
       <h2 className="h2 mb-3">Товари</h2>
       {products?.length === 0 ? (
         <div className="text-muted">У цій категорії поки немає товарів.</div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {products.map((p) => (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {products.map(p => (
             <ProductCard key={p.id} product={p} />
           ))}
         </div>
