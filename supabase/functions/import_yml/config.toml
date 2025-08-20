@@ -1,2 +1,15 @@
 [functions.import_yml]
 verify_jwt = true
+
+[functions.import_yml.invoke]
+method = "POST"
+headers = { 
+  "Authorization" = "Bearer ${ANON_KEY}",        # <- використовуємо ${ANON_KEY}, не SUPABASE_ANON_KEY
+  "X-Import-Secret" = "${IMPORT_SECRET}",
+  "Content-Type" = "application/json"
+}
+body = """{"url":"https://www.shopeditor.com.ua/se_files/dropostore3EE755DD3639.xml"}"""
+
+[[functions.import_yml.schedules]]
+name = "every-2-hours"
+cron = "0 */2 * * *"   # кожні 2 години (UTC) на хвилині 00
