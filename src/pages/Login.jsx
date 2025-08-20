@@ -66,7 +66,7 @@ export default function Login() {
   async function sendResetLink() {
     setError(''); setMsg(''); setLoading(true)
     try {
-      const redirectTo = `${window.location.origin}/auth/reset`
+      const redirectTo = `${window.location.origin}/reset-password`
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
       if (error) throw error
       setMsg('Лист для відновлення пароля надіслано. Перевірте вашу пошту.')

@@ -1,102 +1,86 @@
-import { useEffect, useState } from "react";
-import { supabase } from "../supabaseClient";
-import { useRecovery } from "../auth/RecoveryGate";
+// src/pages/ResetPassword.jsx
+import { useEffect, useState } from 'react'
+import { supabase } from '../supabaseClient'
+import { useNavigate, Link } from 'react-router-dom'
 
 export default function ResetPassword() {
-  const { pending, setPending } = useRecovery();
-  const [stage, setStage] = useState("loading"); // loading | ready | done | error
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const nav = useNavigate()
+  const [ready, setReady] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
+  const [password, setPassword] = useState('')
+  const [password2, setPassword2] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [error, setError] = useState('')
 
-  // 1) Обміняти code на сесію (новий формат) або чекнути наявну сесію/подію
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get("code");
-        if (code) {
-          const { error: exchErr } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchErr) throw exchErr;
-          if (mounted) setStage("ready");
-          return;
-        }
-        // Якщо вже є сесія – все одно дозволяємо змінити пароль
-        const { data } = await supabase.auth.getSession();
-        if (data?.session) {
-          if (mounted) setStage("ready");
-          return;
-        }
-        // fallback – чекаємо подію
-        const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-          if (event === "PASSWORD_RECOVERY") setStage("ready");
-        });
-        return () => sub.subscription.unsubscribe();
-      } catch (e) {
-        setError(e?.message || "Помилка авторизації");
-        setStage("error");
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
+    ;(async () => {
+      // Після переходу по листу Supabase піднімає тимчасову сесію
+      const { data } = await supabase.auth.getSession()
+      setHasSession(Boolean(data.session?.user))
+      setReady(true)
+    })()
+  }, [])
 
-  // 2) Надіслати новий пароль
-  async function onSubmit(e) {
-    e.preventDefault();
-    setError("");
-    const { error: updErr } = await supabase.auth.updateUser({ password });
-    if (updErr) {
-      setError(updErr.message || "Не вдалося оновити пароль");
-      return;
+  async function saveNewPassword(e) {
+    e.preventDefault()
+    setError(''); setMsg('')
+    if (password.length < 6) { setError('Пароль має містити щонайменше 6 символів'); return }
+    if (password !== password2) { setError('Паролі не співпадають'); return }
+
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) throw error
+      setMsg('Пароль оновлено. Можете увійти з новим паролем.')
+      setTimeout(() => nav('/login'), 1200)
+    } catch (e) {
+      setError(e.message || 'Не вдалося оновити пароль. Спробуйте ще раз.')
+    } finally {
+      setLoading(false)
     }
-    // Готово: прибираємо блокування, дозволяємо доступ до кабінету
-    setPending(false);
-    setStage("done");
   }
 
-  if (stage === "loading") {
-    return <div className="container-page mt-header">Завантаження…</div>;
-  }
-  if (stage === "done") {
-    return (
-      <div className="container-page mt-header" style={{ maxWidth: 480 }}>
-        <h1 className="h1 mb-4">Пароль оновлено ✅</h1>
-        <p>Тепер можна увійти з новим паролем.</p>
-      </div>
-    );
-  }
-  if (stage === "error") {
-    return (
-      <div className="container-page mt-header" style={{ maxWidth: 480 }}>
-        <h1 className="h1 mb-4">Помилка</h1>
-        <p className="text-muted">{error}</p>
-      </div>
-    );
+  if (!ready) {
+    return <div className="max-w-6xl mx-auto px-3 py-6">Перевіряємо посилання…</div>
   }
 
-  // stage === 'ready'
   return (
-    <div className="container-page mt-header" style={{ maxWidth: 480 }}>
-      <h1 className="h1 mb-6">Новий пароль</h1>
-      <form onSubmit={onSubmit} className="card card-body">
-        <label className="block mb-2 text-sm text-muted">Введіть новий пароль</label>
-        <input
-          type="password"
-          className="input mb-4"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Мінімум 6 символів"
-          minLength={6}
-          required
-        />
-        {pending && (
-          <div className="mb-3 text-sm text-muted">
-            Ви у режимі відновлення пароля — доступ до кабінету закрито, доки не створите новий пароль.
+    <div className="max-w-6xl mx-auto px-3 py-6">
+      <div className="max-w-md mx-auto">
+        <h1 className="h1 mb-4">Скидання пароля</h1>
+
+        {!hasSession ? (
+          <div className="card">
+            <div className="card-body space-y-3">
+              <div className="text-muted">
+                Посилання для відновлення недійсне або прострочене. Будь ласка,
+                повторіть «Забули пароль?» на сторінці <Link className="text-indigo-600 hover:underline" to="/login">входу</Link>.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="card">
+            <div className="card-body">
+              <form onSubmit={saveNewPassword} className="space-y-3">
+                <div>
+                  <label className="label">Новий пароль</label>
+                  <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="label">Повторіть пароль</label>
+                  <input className="input" type="password" value={password2} onChange={e=>setPassword2(e.target.value)} required />
+                </div>
+                <button type="submit" className="btn-primary w-full" disabled={loading}>
+                  {loading ? 'Зберігаємо…' : 'Зберегти новий пароль'}
+                </button>
+                {msg && <div className="text-green-600 text-sm mt-2">{msg}</div>}
+                {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
+              </form>
+            </div>
           </div>
         )}
-        {error && <div className="mb-3 text-red-600 text-sm">{error}</div>}
-        <button className="btn btn-primary w-full">Оновити пароль</button>
-      </form>
+      </div>
     </div>
-  );
+  )
 }
