@@ -1,243 +1,205 @@
+// supabase/functions/import_yml/index.ts
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { XMLParser } from "https://esm.sh/fast-xml-parser@4.3.6";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2?dts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY =
-  Deno.env.get("SERVICE_ROLE_KEY") ??
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!; // fallback, якщо колись був
-const IMPORT_SECRET = Deno.env.get("IMPORT_SECRET") ?? "";
-const ANON_KEY = Deno.env.get("ANON_KEY") ?? "";
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); // якщо є — обійдемо RLS
+const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+const IMPORT_SECRET = Deno.env.get("IMPORT_SECRET") ?? "123321";
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY ?? ANON_KEY!, {
   auth: { persistSession: false },
+  global: { fetch },
 });
 
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: "",
-  trimValues: true,
-});
-
-function toArray<T>(v: T | T[] | undefined | null): T[] {
-  if (v === undefined || v === null) return [];
-  return Array.isArray(v) ? v : [v];
-}
-
-function slugify(s: string) {
-  return s
+// utils
+const slugify = (s: string) =>
+  s.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9\u0400-\u04FF]+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+    .slice(0, 120) || "cat";
 
-function boolFromAvailable(a: unknown): boolean {
-  // <offer available="true|false">
-  if (typeof a === "string") return a.toLowerCase() === "true";
-  if (typeof a === "boolean") return a;
-  return false;
-}
-
-function pickSku(offer: any): string | null {
-  // найчастіші поля в YML: <vendorCode>, іноді через param
-  const params = toArray(offer.param);
-  const byParam = (name: string) =>
-    params.find((p: any) => (p?.name ?? "").toLowerCase() === name.toLowerCase())?.["#text"];
-
-  const sku =
-    offer.vendorCode ??
-    offer.vendorcode ??
-    offer.vendor_code ??
-    byParam("sku") ??
-    byParam("артикул") ??
-    byParam("код/артикул") ??
-    null;
-
-  return typeof sku === "string" && sku.trim() ? sku.trim() : null;
-}
-
-async function upsertCategoryByName(name: string): Promise<string | null> {
-  if (!name || !name.trim()) return null;
-  const slug = slugify(name);
-  const { data, error } = await admin
-    .from("categories")
-    .upsert({ name, slug }, { onConflict: "slug" })
-    .select("id")
-    .single();
-
-  if (error) {
-    console.warn("Category upsert failed:", error.message);
-    return null;
-  }
-  return data?.id ?? null;
-}
+const txt = (el: Element | null | undefined) => (el?.textContent ?? "").trim();
+const num = (s: string | null | undefined) => {
+  const n = parseFloat((s ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+};
 
 serve(async (req) => {
   try {
-    if (req.method !== "POST") {
-      return new Response(JSON.stringify({ ok: false, error: "method not allowed" }), {
-        status: 405,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+
+    // секрет
+    const secret = req.headers.get("x-import-secret");
+    if (!secret || secret !== IMPORT_SECRET) {
+      return Response.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // 1) Додаткова перевірка секрету
-    const secretHeader = req.headers.get("X-Import-Secret");
-    if (!IMPORT_SECRET || secretHeader !== IMPORT_SECRET) {
-      return new Response(JSON.stringify({ ok: false, error: "forbidden" }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    // 2) Body
     const body = await req.json().catch(() => ({}));
-    const feedUrl = (body?.url ?? "").toString().trim();
-    if (!feedUrl || !/^https?:\/\//i.test(feedUrl)) {
-      return new Response(JSON.stringify({ ok: false, error: "Missing url parameter" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    const feedUrl: string | undefined = body?.url;
+    const debug: boolean = !!body?.debug;
+    if (!feedUrl) return Response.json({ ok: false, error: "Missing url" }, { status: 400 });
 
-    // 3) Завантажуємо YML/XML
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 60_000);
-    const resp = await fetch(feedUrl, { signal: ac.signal });
-    clearTimeout(timer);
-
-    if (!resp.ok) {
-      return new Response(
-        JSON.stringify({ ok: false, error: `Feed fetch failed: ${resp.status} ${resp.statusText}` }),
-        { status: 502, headers: { "Content-Type": "application/json" } },
-      );
-    }
-
+    // 1) тягнемо XML
+    const resp = await fetch(feedUrl);
+    if (!resp.ok) return Response.json({ ok: false, error: `Fetch ${resp.status}` }, { status: 502 });
     const xml = await resp.text();
-    const parsed = parser.parse(xml);
 
-    // 4) Витягуємо категорії та оффери
-    const shop = parsed?.yml_catalog?.shop ?? parsed?.shop ?? parsed;
-    const categoriesRaw = toArray(shop?.categories?.category);
-    const offersRaw = toArray(shop?.offers?.offer);
+    // 2) парсимо
+    const dom = new DOMParser().parseFromString(xml, "text/xml");
+    if (!dom) return Response.json({ ok: false, error: "Bad XML" }, { status: 400 });
 
-    // карта id->name з фіда
-    const catNameById = new Map<string, string>();
-    for (const c of categoriesRaw) {
-      const id = (c?.id ?? "").toString();
-      const nm = (c?.["#text"] ?? c?.name ?? "").toString().trim();
-      if (id && nm) catNameById.set(id, nm);
-    }
+    // ---------- КАТЕГОРІЇ: зібрати → upsert → ще раз прочитати → зробити мапу ----------
+    type YmlCat = { ymlId: string; name: string; slug: string };
+    const foundCats: YmlCat[] = [];
+    const seenSlugs = new Set<string>();
 
-    let created = 0;
-    let updatedStock = 0;
-    let skippedNoSku = 0;
-    let total = 0;
-    const errors: string[] = [];
+    dom.querySelectorAll("categories > category, category").forEach((c) => {
+      const id = c.getAttribute("id")?.trim();
+      const name = txt(c);
+      if (!id || !name) return;
+      let slug = slugify(name);
+      let trySlug = slug, i = 2;
+      while (seenSlugs.has(trySlug)) trySlug = `${slug}-${i++}`;
+      seenSlugs.add(trySlug);
+      foundCats.push({ ymlId: id, name, slug: trySlug });
+    });
 
-    // Кешування створених категорій у рамках одного запуску
-    const catIdCache = new Map<string, string | null>(); // name -> id
-
-    // 5) Обробка пропозицій
-    for (const raw of offersRaw) {
-      total++;
-
-      const sku = pickSku(raw);
-      if (!sku) {
-        skippedNoSku++;
-        continue;
+    // upsert по slug
+    let ymlIdToDbId = new Map<string, string>();
+    if (foundCats.length) {
+      const upRows = foundCats.map((c) => ({ name: c.name, slug: c.slug }));
+      const { error: upErr } = await supabase
+        .from("categories")
+        .upsert(upRows, { onConflict: "slug" });
+      if (upErr) {
+        return Response.json({ ok: false, error: `Categories upsert: ${upErr.message}` }, { status: 500 });
       }
 
-      // чи є в БД такий SKU?
-      const { data: existing, error: selErr } = await admin
-        .from("products")
-        .select("id,in_stock")
-        .eq("sku", sku)
-        .maybeSingle();
+      // другий прохід — беремо id
+      const slugs = [...foundCats.map((c) => c.slug)];
+      const { data: got, error: selErr } = await supabase
+        .from("categories")
+        .select("id, slug")
+        .in("slug", slugs);
 
       if (selErr) {
-        errors.push(`select ${sku}: ${selErr.message}`);
-        continue;
+        return Response.json({ ok: false, error: `Categories select: ${selErr.message}` }, { status: 500 });
       }
-
-      const available = boolFromAvailable(raw?.available);
-      if (existing) {
-        // ОНОВЛЮЄМО ЛИШЕ in_stock
-        if (existing.in_stock !== available) {
-          const { error: upErr } = await admin
-            .from("products")
-            .update({ in_stock: available })
-            .eq("id", existing.id);
-          if (upErr) errors.push(`update stock ${sku}: ${upErr.message}`);
-          else updatedStock++;
-        }
-        continue;
+      const slugToId = new Map<string, string>();
+      (got ?? []).forEach((r) => slugToId.set(r.slug, r.id));
+      for (const c of foundCats) {
+        const id = slugToId.get(c.slug);
+        if (id) ymlIdToDbId.set(c.ymlId, id);
       }
-
-      // Новий товар — створюємо
-      const name = (raw?.name ?? "").toString().trim();
-      const price = Number(raw?.price ?? NaN);
-      if (!name || !isFinite(price)) {
-        // без назви/ціни не створюємо
-        continue;
-      }
-
-      // опис
-      const description = (raw?.description ?? "").toString();
-
-      // зображення
-      const pictures = toArray<string>(raw?.picture).map((p) => p.toString());
-      const image_url = pictures[0] ?? null;
-      const gallery_json = pictures.length ? pictures : [];
-
-      // категорія з фіда → створюємо/знаходимо у БД
-      let category_id: string | null = null;
-      const remoteCatId = (raw?.categoryId ?? raw?.category_id ?? "").toString();
-      if (remoteCatId && catNameById.has(remoteCatId)) {
-        const catName = catNameById.get(remoteCatId)!;
-        if (catIdCache.has(catName)) {
-          category_id = catIdCache.get(catName)!;
-        } else {
-          category_id = await upsertCategoryByName(catName);
-          catIdCache.set(catName, category_id);
-        }
-      }
-
-      const insertPayload: any = {
-        name,
-        description,
-        price_dropship: Math.round(price * 100) / 100,
-        sku,
-        in_stock: available,
-        category_id,
-      };
-      if (image_url) insertPayload.image_url = image_url;
-      if (gallery_json.length) insertPayload.gallery_json = gallery_json;
-
-      const { error: insErr } = await admin.from("products").insert(insertPayload);
-      if (insErr) errors.push(`insert ${sku}: ${insErr.message}`);
-      else created++;
     }
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        offers: total,
-        created,
-        updatedStock,
-        skippedNoSku,
-        errors,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    // зручна мапа id→name для додаткових перевірок
+    const ymlIdToName = new Map<string, string>();
+    foundCats.forEach((c) => ymlIdToName.set(c.ymlId, c.name));
+
+    // ---------- ТОВАРИ ----------
+    const offers = dom.getElementsByTagName("offer");
+    const stats = {
+      offers: offers.length,
+      created: 0,
+      updatedStock: 0,
+      skippedNoSku: 0,
+      missedCategory: 0,
+      errors: [] as Array<{ sku?: string; msg: string }>,
+    };
+
+    for (const offer of offers) {
+      try {
+        const available = (offer.getAttribute("available") ?? "").toLowerCase() === "true";
+        const name = txt(offer.getElementsByTagName("name")[0]);
+        const price = num(txt(offer.getElementsByTagName("price")[0]));
+        const desc = txt(offer.getElementsByTagName("description")[0]);
+        const vendorCode = txt(offer.getElementsByTagName("vendorCode")[0]);
+        const sku = vendorCode || "";
+        if (!sku) { stats.skippedNoSku++; continue; }
+
+        // картинки
+        const pics = Array.from(offer.getElementsByTagName("picture"))
+          .map((p) => txt(p)).filter(Boolean);
+        const image_url = pics[0] || null;
+        const gallery = pics;
+
+        // категорія з offer
+        const ymlCatId = txt(offer.getElementsByTagName("categoryId")[0]);
+        let category_id: string | null = null;
+
+        if (ymlCatId) {
+          category_id = ymlIdToDbId.get(ymlCatId) ?? null;
+
+          // якщо не знайшли — перестрахуємось: зробимо one-shot upsert цієї категорії за name
+          if (!category_id) {
+            const cname = ymlIdToName.get(ymlCatId);
+            if (cname) {
+              const cslug = slugify(cname);
+              const { data: one, error: oneErr } = await supabase
+                .from("categories")
+                .upsert({ name: cname, slug: cslug }, { onConflict: "slug" })
+                .select("id")
+                .single();
+              if (!oneErr && one?.id) {
+                category_id = one.id;
+                ymlIdToDbId.set(ymlCatId, one.id); // запам’ятаємо на майбутнє
+              }
+            }
+          }
+
+          if (!category_id) {
+            stats.missedCategory++;
+            if (debug) console.log("missed category for catId:", ymlCatId, "name:", ymlIdToName.get(ymlCatId));
+          }
+        }
+
+        // чи існує товар зі SKU?
+        const { data: exist, error: selErr } = await supabase
+          .from("products")
+          .select("id")
+          .eq("sku", sku)
+          .maybeSingle();
+        if (selErr) { stats.errors.push({ sku, msg: selErr.message }); continue; }
+
+        if (exist) {
+          // оновлюємо тільки наявність
+          const { error: upErr } = await supabase
+            .from("products")
+            .update({ in_stock: available, updated_at: new Date().toISOString() })
+            .eq("id", exist.id);
+          if (upErr) stats.errors.push({ sku, msg: upErr.message });
+          else stats.updatedStock++;
+        } else {
+          // новий товар — з category_id
+          const { error: insErr } = await supabase
+            .from("products")
+            .insert({
+              sku,
+              name,
+              description: desc,
+              price_dropship: price,
+              in_stock: available,
+              category_id,          // тут ставиться категорія
+              image_url,
+              gallery_json: gallery,
+              created_at: new Date().toISOString(),
+            });
+          if (insErr) stats.errors.push({ sku, msg: insErr.message });
+          else stats.created++;
+        }
+      } catch (e) {
+        stats.errors.push({ msg: e?.message ?? String(e) });
+      }
+    }
+
+    const res = { ok: true, ...stats };
+    if (debug) console.log("import_yml stats:", res);
+    return Response.json(res);
   } catch (e) {
-    console.error(e);
-    return new Response(JSON.stringify({ ok: false, error: (e as Error).message ?? "unknown" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
   }
 });
