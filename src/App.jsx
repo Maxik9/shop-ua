@@ -14,6 +14,8 @@ import Cart           from './pages/Cart'
 import Login          from './pages/Login'
 import About          from './pages/About'
 import Contacts       from './pages/Contacts'
+import Forgot         from './pages/Forgot'
+import ResetPassword  from './pages/ResetPassword'
 
 // личный кабинет
 import Dashboard      from './pages/Dashboard'
@@ -86,6 +88,8 @@ export default function App() {
         <Route path="/admin/products/:id" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
         <Route path="/admin/categories" element={<AdminRoute><AdminCategories /></AdminRoute>} />
 
+        <Route path="/auth/forgot" element={<Forgot />} />
+        <Route path="/auth/reset" element={<ResetPassword />} />
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
         <Route path="/search" element={<Search />} />
