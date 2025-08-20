@@ -90,6 +90,7 @@ export default function App() {
 
         <Route path="/auth/forgot" element={<Forgot />} />
         <Route path="/auth/reset" element={<ResetPassword />} />
+	<Route path="/reset-password" element={<Navigate to="/auth/reset" replace />} />
         {/* 404 → на главную */}
         <Route path="*" element={<Navigate to="/" />} />
         <Route path="/search" element={<Search />} />
