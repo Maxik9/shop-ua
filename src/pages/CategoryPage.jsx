@@ -114,7 +114,7 @@ export default function CategoryPage() {
 
   if (loading) {
     return (
-      <div className="container-page mt-6">
+      <div className="container-page mt-header">
         <h1 className="h1 mb-4">Завантаження…</h1>
       </div>
     );
@@ -122,7 +122,7 @@ export default function CategoryPage() {
 
   if (!category) {
     return (
-      <div className="container-page mt-6">
+      <div className="container-page mt-header">
         <div className="flex items-center justify-between mb-4">
           <h1 className="h1">Категорію не знайдено</h1>
           <button onClick={goBack} className="inline-flex items-center gap-2 text-sm btn-outline">
@@ -135,7 +135,7 @@ export default function CategoryPage() {
   }
 
   return (
-    <div className="container-page mt-6">
+    <div className="container-page mt-header">
       {/* Заголовок + Назад справа */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="h1">{category.name}</h1>
