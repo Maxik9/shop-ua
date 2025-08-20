@@ -12,7 +12,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function CategoryPage() {
-  const { key } = useParams();               // slug (або id — якщо десь ще є старі посилання)
+  const { key } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -21,7 +21,6 @@ export default function CategoryPage() {
   const [products, setProducts]   = useState([]);
   const [loading, setLoading]     = useState(true);
 
-  // сортування ТІЛЬКИ для товарів
   const [sort, setSort] = useState(searchParams.get("sort") || "alpha");
   useEffect(() => {
     setSearchParams(prev => {
@@ -31,10 +30,11 @@ export default function CategoryPage() {
     });
   }, [sort, setSearchParams]);
 
-  // кнопка «Назад»: якщо нема історії — ведемо на головну (або постав "/catalog", якщо хочеш)
   const goBack = () => {
-    if (window.history.state && window.history.state.idx > 0) navigate(-1);
-    else navigate("/");
+    // якщо є попередні сторінки — йдемо назад
+    if (window.history.length > 2) navigate(-1);
+    // fallback — на головну (або "/catalog")
+    else navigate("/catalog");
   };
 
   useEffect(() => {
@@ -42,7 +42,6 @@ export default function CategoryPage() {
     (async () => {
       setLoading(true);
 
-      // 1) шукаємо категорію по slug (fallback — по id)
       const bySlug = await supabase
         .from("categories")
         .select("id, name, slug, image_url")
@@ -69,13 +68,11 @@ export default function CategoryPage() {
       }
       setCategory(cat);
 
-      // 2) підкатегорії (лічильники не показуємо в UI)
       const { data: subs } = await supabase.rpc(
         "get_subcategories_with_counts",
         { p_parent: cat.id }
       );
 
-      // 3) товари з урахуванням всього піддерева + сортування
       const { data: prods } = await supabase.rpc("get_category_products", {
         p_category: cat.id,
         p_sort: sort,
@@ -94,7 +91,7 @@ export default function CategoryPage() {
 
   if (loading) {
     return (
-      <div className="container-page my-6">
+      <div className="container-page pt-24">
         <h1 className="h1 mb-4">Завантаження…</h1>
       </div>
     );
@@ -102,7 +99,7 @@ export default function CategoryPage() {
 
   if (!category) {
     return (
-      <div className="container-page my-6">
+      <div className="container-page pt-24">
         <button onClick={goBack} className="inline-flex items-center gap-2 text-sm btn-outline mb-4">
           ← Назад
         </button>
@@ -113,7 +110,7 @@ export default function CategoryPage() {
   }
 
   return (
-    <div className="container-page my-6">
+    <div className="container-page pt-24">
       {/* Заголовок + Назад */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="h1">{category.name}</h1>
@@ -122,7 +119,7 @@ export default function CategoryPage() {
         </button>
       </div>
 
-      {/* Підкатегорії (картки у твоєму стилі; без кількості) */}
+      {/* Підкатегорії */}
       {subcats?.length > 0 && (
         <div className="mb-6">
           <h2 className="h2 mb-3">Підкатегорії</h2>
@@ -147,7 +144,7 @@ export default function CategoryPage() {
         </div>
       )}
 
-      {/* Сортування — нижче підкатегорій, стосується лише товарів */}
+      {/* Сортування */}
       <div className="flex items-center justify-end mb-3">
         <label className="text-sm text-gray-600 mr-2">Сортувати товари:</label>
         <select
@@ -161,7 +158,7 @@ export default function CategoryPage() {
         </select>
       </div>
 
-      {/* Товари (картка з твого проекту) */}
+      {/* Товари */}
       <h2 className="h2 mb-3">Товари</h2>
       {products?.length === 0 ? (
         <div className="text-muted">У цій категорії поки немає товарів.</div>
