@@ -2,30 +2,30 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import NavBar from './components/NavBar'
-import Search from './pages/Search'
-import AdminImport from './pages/AdminImport'
-import AdminCategoryEditor from "./pages/AdminCategoryEditor";
 
-import ResetPassword   from './pages/ResetPassword'
-// публичные страницы
-import CategoriesHome from './pages/CategoriesHome'   // главная: список категорий (верхнего уровня)
-import CategoryPage   from './pages/CategoryPage'     // товары категории + подкатегории
+// публічні сторінки
+import CategoriesHome from './pages/CategoriesHome'
+import CategoryPage   from './pages/CategoryPage'
 import Product        from './pages/Product'
 import Cart           from './pages/Cart'
 import Login          from './pages/Login'
 import About          from './pages/About'
 import Contacts       from './pages/Contacts'
+import Search         from './pages/Search'
+import ResetPassword  from './pages/ResetPassword'
+import NotFound       from './pages/NotFound'
 
-// личный кабинет
+// приватні
 import Dashboard      from './pages/Dashboard'
 
-// админ
-import Admin          from './pages/Admin'            // дашборд
-import AdminOrders    from './pages/AdminOrders'
-import AdminProducts  from './pages/AdminProducts'
+// адмін
+import Admin              from './pages/Admin'
+import AdminOrders        from './pages/AdminOrders'
+import AdminProducts      from './pages/AdminProducts'
 import AdminProductEditor from './pages/AdminProductEditor'
-import AdminCategories from './pages/AdminCategories'
-
+import AdminCategories    from './pages/AdminCategories'
+import AdminCategoryEditor from './pages/AdminCategoryEditor'
+import AdminImport        from './pages/AdminImport'
 
 function PrivateRoute({ children }) {
   const [ready, setReady] = useState(false)
@@ -39,9 +39,8 @@ function PrivateRoute({ children }) {
   }, [])
 
   if (!ready) return null
-  return user ? children : <Navigate to="/login" />
+  return user ? children : <Navigate to="/login" replace />
 }
-
 
 function AdminRoute({ children }) {
   const [ready, setReady] = useState(false)
@@ -59,7 +58,7 @@ function AdminRoute({ children }) {
   }, [])
 
   if (!ready) return null
-  return allowed ? children : <Navigate to="/" />
+  return allowed ? children : <Navigate to="/" replace />
 }
 
 export default function App() {
@@ -67,7 +66,7 @@ export default function App() {
     <>
       <NavBar />
       <Routes>
-        {/* публичные */}
+        {/* публічні */}
         <Route path="/" element={<CategoriesHome />} />
         <Route path="/category/:key" element={<CategoryPage />} />
         <Route path="/product/:id" element={<Product />} />
@@ -75,28 +74,28 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/about" element={<About />} />
         <Route path="/contacts" element={<Contacts />} />
+        <Route path="/search" element={<Search />} />
 
-        {/* приватные */}
+        {/* відновлення пароля */}
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/auth/reset-password" element={<ResetPassword />} />
+
+        {/* приватні */}
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
 
-        {/* админ */}
+        {/* адмін */}
         <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
         <Route path="/admin/orders" element={<AdminRoute><AdminOrders /></AdminRoute>} />
         <Route path="/admin/products" element={<AdminRoute><AdminProducts /></AdminRoute>} />
         <Route path="/admin/products/new" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
         <Route path="/admin/products/:id" element={<AdminRoute><AdminProductEditor /></AdminRoute>} />
         <Route path="/admin/categories" element={<AdminRoute><AdminCategories /></AdminRoute>} />
+        <Route path="/admin/categories/new" element={<AdminRoute><AdminCategoryEditor /></AdminRoute>} />
+        <Route path="/admin/categories/:id" element={<AdminRoute><AdminCategoryEditor /></AdminRoute>} />
+        <Route path="/admin/import" element={<AdminRoute><AdminImport /></AdminRoute>} />
 
-        
-        {/* відновлення пароля */}
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/auth/reset-password" element={<ResetPassword />} />
-{/* 404 → на главную */}
-        <Route path="*" element={<Navigate to="/" />} />
-        <Route path="/search" element={<Search />} />
-	<Route path="/admin/import" element={<AdminImport/>} />
-	<Route path="/admin/categories/new" element={<AdminRoute><AdminCategoryEditor /></AdminRoute>} />
-	<Route path="/admin/categories/:id" element={<AdminRoute><AdminCategoryEditor /></AdminRoute>} />
+        {/* 404 */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </>
   )

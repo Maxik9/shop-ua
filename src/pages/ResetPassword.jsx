@@ -1,87 +1,47 @@
-// src/pages/ResetPassword.jsx
-import { useEffect, useState } from 'react'
-import { supabase } from '../supabaseClient'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
+import { useNavigate } from 'react-router-dom';
 
 export default function ResetPassword() {
-  const nav = useNavigate()
-  const [ready, setReady] = useState(false)
-  const [hasSession, setHasSession] = useState(false)
-  const [password, setPassword] = useState('')
-  const [password2, setPassword2] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [msg, setMsg] = useState('')
-  const [error, setError] = useState('')
+  const nav = useNavigate();
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [ok, setOk] = useState(false);
 
   useEffect(() => {
-    ;(async () => {
-      // Після переходу по листу Supabase піднімає тимчасову сесію
-      const { data } = await supabase.auth.getSession()
-      setHasSession(Boolean(data.session?.user))
-      setReady(true)
-    })()
-  }, [])
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) setError('Посилання прострочене або недійсне. Спробуйте ще раз.');
+    });
+  }, []);
 
-  async function saveNewPassword(e) {
-    e.preventDefault()
-    setError(''); setMsg('')
-    if (password.length < 6) { setError('Пароль має містити щонайменше 6 символів'); return }
-    if (password !== password2) { setError('Паролі не співпадають'); return }
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (password.length < 6) return setError('Мінімум 6 символів.');
+    if (password !== confirm) return setError('Паролі не співпадають.');
 
-    setLoading(true)
-    try {
-      const { error } = await supabase.auth.updateUser({ password })
-      if (error) throw error
-      setMsg('Пароль оновлено. Зараз перенаправимо на сторінку входу…')
-      await supabase.auth.signOut()
-      nav('/login')
-    } catch (e) {
-      setError(e.message || 'Не вдалося оновити пароль. Спробуйте ще раз.')
-    } finally {
-      setLoading(false)
-    }
-  }
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) { setError(error.message); return; }
 
-  if (!ready) {
-    return <div className="max-w-6xl mx-auto px-3 py-6">Перевіряємо посилання…</div>
-  }
+    await supabase.auth.signOut();
+    setOk(true);
+    setTimeout(()=> nav('/login'), 700);
+  };
 
   return (
-    <div className="max-w-6xl mx-auto px-3 py-6">
-      <div className="max-w-md mx-auto">
-        <h1 className="h1 mb-4">Скидання пароля</h1>
-
-        {!hasSession ? (
-          <div className="card">
-            <div className="card-body space-y-3">
-              <div className="text-muted">
-                Посилання для відновлення недійсне або прострочене. Будь ласка,
-                повторіть «Забули пароль?» на сторінці <Link className="text-indigo-600 hover:underline" to="/login">входу</Link>.
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="card">
-            <div className="card-body">
-              <form onSubmit={saveNewPassword} className="space-y-3">
-                <div>
-                  <label className="label">Новий пароль</label>
-                  <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required />
-                </div>
-                <div>
-                  <label className="label">Повторіть пароль</label>
-                  <input className="input" type="password" value={password2} onChange={e=>setPassword2(e.target.value)} required />
-                </div>
-                <button type="submit" className="btn-primary w-full" disabled={loading}>
-                  {loading ? 'Зберігаємо…' : 'Зберегти новий пароль'}
-                </button>
-                {msg && <div className="text-green-600 text-sm mt-2">{msg}</div>}
-                {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
-              </form>
-            </div>
-          </div>
-        )}
-      </div>
+    <div className="max-w-md mx-auto py-16">
+      <h1 className="text-2xl font-semibold mb-6">Скидання пароля</h1>
+      {error && <div className="text-red-600 mb-4">{error}</div>}
+      {ok ? (
+        <div className="text-green-700">Пароль оновлено. Переходимо на сторінку входу…</div>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          <input className="w-full border px-3 py-2 rounded-lg" type="password" placeholder="Новий пароль" value={password} onChange={e=>setPassword(e.target.value)} />
+          <input className="w-full border px-3 py-2 rounded-lg" type="password" placeholder="Повторіть пароль" value={confirm} onChange={e=>setConfirm(e.target.value)} />
+          <button className="px-4 py-2 rounded-lg bg-black text-white">Зберегти</button>
+        </form>
+      )}
     </div>
-  )
+  );
 }
