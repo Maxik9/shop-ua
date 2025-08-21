@@ -1,4 +1,3 @@
-// src/pages/Dashboard.jsx
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { Link } from 'react-router-dom'
@@ -17,25 +16,15 @@ const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по рекв�
 function fmtDate(ts) {
   try {
     const d = new Date(ts)
-    return d.toLocaleString('uk-UA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return ts
-  }
+    return d.toLocaleString('uk-UA', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })
+  } catch { return ts }
 }
 
 export default function Dashboard() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [q, setQ] = useState('') // пошук: ПІБ/телефон одержувача
-
-  // Підсумок зверху через RPC
+  const [q, setQ] = useState('')
   const [totalTop, setTotalTop] = useState(0)
 
   useEffect(() => {
@@ -47,17 +36,14 @@ export default function Dashboard() {
         const uid = s?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
-        // Загальний підсумок «Разом до виплати» (виключає paid)
+        // Підсумок зверху (RPC)
         try {
           const { data: total, error: tErr } = await supabase.rpc('get_total_payout', { p_user: uid })
           if (tErr) throw tErr
           if (mounted) setTotalTop(Number(total || 0))
-        } catch (e) {
-          // не блокуємо сторінку, просто залишимо 0
-          console.warn('get_total_payout error:', e?.message || e)
-        }
+        } catch (_) {}
 
-        // Список замовлень (рядки)
+        // Список
         const { data, error } = await supabase
           .from('orders')
           .select(`
@@ -80,7 +66,7 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Групування рядків по одному замовленню (order_no) + правильна логіка виплат
+  // Групування + правильний розрахунок (override > bank)
   const grouped = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -90,11 +76,9 @@ export default function Dashboard() {
     }
     const list = Array.from(map.entries()).map(([order_no, lines]) => {
       const first = lines[0]
-      const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
+      const status  = lines.every(l => l.status === first.status) ? first.status : 'processing'
       const payment = first?.payment_method || 'cod'
 
-      // базова сума по рядках: override якщо є, інакше (продаж - дроп) * qty
-      // якщо bank — 0
       let baseSum = 0
       let hasAnyOverride = false
       for (const r of lines) {
@@ -103,28 +87,20 @@ export default function Dashboard() {
         const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
         const unitDrop = Number(p.price_dropship ?? 0)
 
-        let lineBase = 0
-        if (r.payout_override !== null && r.payout_override !== undefined) {
-          hasAnyOverride = true
-          lineBase = Number(r.payout_override || 0)
-        } else {
-          lineBase = (unitSale - unitDrop) * qty
-        }
-        baseSum += lineBase
-      }
-      if (payment === 'bank') baseSum = 0
+        const hasOverride = (r.payout_override !== null && r.payout_override !== undefined)
+        let line = hasOverride ? Number(r.payout_override || 0)
+                               : (unitSale - unitDrop) * qty
+        if (!hasOverride && payment === 'bank') line = 0
+        if (hasOverride) hasAnyOverride = true
 
-      // підсумок за правилами статусу
-      let payout = 0
-      if (status === 'delivered') {
-        payout = baseSum
-      } else if (status === 'refused' || status === 'canceled') {
-        payout = hasAnyOverride ? baseSum : 0
-      } else if (status === 'paid') {
-        payout = baseSum // показати довідково, але в загальний знизу не додамо
-      } else {
-        payout = 0
+        baseSum += line
       }
+
+      let payout = 0
+      if (status === 'delivered') payout = baseSum
+      else if (status === 'refused' || status === 'canceled') payout = hasAnyOverride ? baseSum : 0
+      else if (status === 'paid') payout = baseSum
+      else payout = 0
 
       return {
         order_no,
@@ -141,21 +117,20 @@ export default function Dashboard() {
         lines,
       }
     })
-    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    return list.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
   }, [rows])
 
-  // Пошук по ПІБ/телефону одержувача
+  // Пошук по одержувачу/телефону
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase()
     if (!t) return grouped
-    return grouped.filter(
-      g =>
-        (g.recipient_name || '').toLowerCase().includes(t) ||
-        (g.recipient_phone || '').toLowerCase().includes(t)
+    return grouped.filter(g =>
+      (g.recipient_name || '').toLowerCase().includes(t) ||
+      (g.recipient_phone || '').toLowerCase().includes(t)
     )
   }, [grouped, q])
 
-  // Підсумок унизу по видимій вибірці (виключає paid)
+  // Підсумок по вибірці (без paid)
   const totalPayoutVisible = useMemo(
     () => filtered.reduce((s, g) => s + (g.status === 'paid' ? 0 : g.payout), 0),
     [filtered]
@@ -171,7 +146,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Шапка + пошук */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <h1 className="h1">Мої замовлення</h1>
         <div className="flex items-center gap-2">
@@ -179,32 +153,27 @@ export default function Dashboard() {
             className="input input-xs w-[260px] sm:w-[320px]"
             placeholder="Пошук: ПІБ або телефон одержувача…"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={e=>setQ(e.target.value)}
           />
           <Link to="/" className="btn-outline">До каталогу</Link>
         </div>
       </div>
 
-      {loading && (
-        <div className="card"><div className="card-body">Завантаження…</div></div>
-      )}
+      {loading && <div className="card"><div className="card-body">Завантаження…</div></div>}
       {error && (
-        <div className="card mb-4">
-          <div className="card-body">
-            <div className="h2 mb-2">Помилка</div>
-            <div className="text-muted">{error}</div>
-          </div>
-        </div>
+        <div className="card mb-4"><div className="card-body">
+          <div className="h2 mb-2">Помилка</div>
+          <div className="text-muted">{error}</div>
+        </div></div>
       )}
       {!loading && !error && filtered.length === 0 && (
         <div className="card"><div className="card-body text-muted">Нічого не знайдено.</div></div>
       )}
 
       <div className="space-y-3">
-        {filtered.map((order) => (
+        {filtered.map(order => (
           <div key={order.order_no} className="card">
             <div className="p-4">
-              {/* Верхній ряд замовлення */}
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="text-sm text-muted">№</div>
@@ -226,7 +195,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Одержувач / Адреса */}
               <div className="mb-2 text-sm flex flex-col sm:flex-row sm:flex-wrap gap-y-1 gap-x-3">
                 <div>
                   <span className="text-muted">Одержувач:&nbsp;</span>
@@ -246,7 +214,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Коментар */}
               {order.comment && (
                 <div className="text-sm mb-3">
                   <span className="text-muted">Коментар:&nbsp;</span>
@@ -254,7 +221,6 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Лінії замовлення */}
               <div className="rounded-xl border border-slate-100">
                 {order.lines.map((r, idx) => {
                   const p = r.product || {}
@@ -262,76 +228,43 @@ export default function Dashboard() {
                   const unitDrop = Number(p.price_dropship ?? 0)
                   const qty = Number(r.qty || 1)
 
-                  // line base з урахуванням override
-                  let lineBase = 0
-                  if (r.payout_override !== null && r.payout_override !== undefined) {
-                    lineBase = Number(r.payout_override || 0)
-                  } else {
-                    lineBase = (unitSale - unitDrop) * qty
-                  }
-                  if (order.payment === 'bank') lineBase = 0
+                  const hasOverride = (r.payout_override !== null && r.payout_override !== undefined)
+                  let lineBase = hasOverride ? Number(r.payout_override || 0)
+                                             : (unitSale - unitDrop) * qty
+                  if (!hasOverride && order.payment === 'bank') lineBase = 0
 
-                  // Виплата по рядку за статусом
                   let perLinePayout = 0
-                  if (order.status === 'delivered') {
-                    perLinePayout = lineBase
-                  } else if (order.status === 'refused' || order.status === 'canceled') {
-                    perLinePayout = (r.payout_override !== null && r.payout_override !== undefined) ? lineBase : 0
-                  } else if (order.status === 'paid') {
-                    perLinePayout = lineBase
-                  } else {
-                    perLinePayout = 0
-                  }
+                  if (order.status === 'delivered') perLinePayout = lineBase
+                  else if (order.status === 'refused' || order.status === 'canceled')
+                    perLinePayout = hasOverride ? lineBase : 0
+                  else if (order.status === 'paid') perLinePayout = lineBase
+                  else perLinePayout = 0
 
                   return (
-                    <div
-                      key={r.id}
-                      className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${
-                        idx > 0 ? 'border-t border-slate-100' : ''
-                      }`}
-                    >
-                      {/* Прев'ю: ПРИХОВАНЕ на мобілці, видиме з sm і вище */}
+                    <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
-                        {p.image_url && (
-                          <img
-                            src={p.image_url}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        )}
+                        {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
                       </div>
-
-                      {/* Назва як посилання на карточку товару */}
                       <div className="flex-1 min-w-0">
-                        <Link
-                          to={`/product/${p.id}`}
-                          className="font-medium hover:text-indigo-600 truncate block"
-                          title={p.name}
-                        >
+                        <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 truncate block" title={p.name}>
                           {p.name || '—'}
                         </Link>
                         <div className="text-muted text-sm">
                           К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
                         </div>
                       </div>
-
                       <div className="text-right">
                         <div className="text-sm text-muted">До виплати</div>
-                        <div className="font-semibold">
-                          {perLinePayout.toFixed(2)} ₴
-                        </div>
+                        <div className="font-semibold">{perLinePayout.toFixed(2)} ₴</div>
                       </div>
                     </div>
                   )
                 })}
               </div>
 
-              {/* Разом */}
               <div className="mt-3 text-right">
                 <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
-                <span className="price text-[18px] font-semibold">
-                  {order.payout.toFixed(2)} ₴
-                </span>
+                <span className="price text-[18px] font-semibold">{order.payout.toFixed(2)} ₴</span>
               </div>
             </div>
           </div>

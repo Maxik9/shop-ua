@@ -1,4 +1,3 @@
-// src/pages/AdminOrders.jsx
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { Link } from 'react-router-dom'
@@ -51,10 +50,9 @@ export default function AdminOrders() {
       setLoading(false)
     }
   }
-
   useEffect(() => { load() }, [])
 
-  // Групування по order_no + розрахунок виплати
+  // Групування + правильний розрахунок (override > bank)
   const groups = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -75,27 +73,22 @@ export default function AdminOrders() {
         const qty = Number(r.qty || 1)
         const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
         const unitDrop = Number(p.price_dropship ?? 0)
-        let line = 0
-        if (r.payout_override !== null && r.payout_override !== undefined) {
-          hasAnyOverride = true
-          line = Number(r.payout_override || 0)
-        } else {
-          line = (unitSale - unitDrop) * qty
-        }
+
+        const hasOverride = (r.payout_override !== null && r.payout_override !== undefined)
+        let line = hasOverride ? Number(r.payout_override || 0)
+                               : (unitSale - unitDrop) * qty
+
+        if (!hasOverride && payment === 'bank') line = 0
+        if (hasOverride) hasAnyOverride = true
+
         baseSum += line
       }
-      if (payment === 'bank') baseSum = 0
 
       let payout = 0
-      if (status === 'delivered') {
-        payout = baseSum
-      } else if (status === 'refused' || status === 'canceled') {
-        payout = hasAnyOverride ? baseSum : 0
-      } else if (status === 'paid') {
-        payout = baseSum // для відображення; в загальний підсумок нижче не додамо
-      } else {
-        payout = 0
-      }
+      if (status === 'delivered')      payout = baseSum
+      else if (status === 'refused' || status === 'canceled') payout = hasAnyOverride ? baseSum : 0
+      else if (status === 'paid')      payout = baseSum     // показуємо, але не додаємо у загальний підсумок нижче
+      else                             payout = 0
 
       const email = first?.user?.email || ''
       const full_name = first?.user?.full_name || ''
@@ -149,27 +142,24 @@ export default function AdminOrders() {
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
     if (!error) await load()
   }
-
   async function updateTTN(order_no, newTTN) {
     const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
     if (!error) await load()
   }
 
-  // === ВАЖЛИВО: oверрайд «РАЗОМ ДО ВИПЛАТИ» по замовленню ===
+  // Override всього замовлення: перший рядок = вся сума, інші = 0
   async function setOrderTotalOverride(order_no, total) {
     const lines = rows.filter(r => (r.order_no || r.id) === order_no)
     if (!lines.length) return
     const firstId = lines[0].id
     const restIds = lines.slice(1).map(l => l.id)
 
-    // 1) на перший рядок ставимо всю суму
     const { error: e1 } = await supabase
       .from('orders')
       .update({ payout_override: Number(total) })
       .eq('id', firstId)
     if (e1) return alert('Помилка збереження: ' + e1.message)
 
-    // 2) на всі інші — 0
     if (restIds.length) {
       const { error: e2 } = await supabase
         .from('orders')
@@ -177,15 +167,11 @@ export default function AdminOrders() {
         .in('id', restIds)
       if (e2) return alert('Помилка збереження: ' + e2.message)
     }
-
     await load()
   }
 
   async function clearOrderOverride(order_no) {
-    const { error } = await supabase
-      .from('orders')
-      .update({ payout_override: null })
-      .eq('order_no', order_no)
+    const { error } = await supabase.from('orders').update({ payout_override: null }).eq('order_no', order_no)
     if (error) return alert('Помилка очищення: ' + error.message)
     await load()
   }
@@ -307,25 +293,17 @@ export default function AdminOrders() {
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
 
-                  let lineBase = 0
-                  if (r.payout_override !== null && r.payout_override !== undefined) {
-                    lineBase = Number(r.payout_override || 0)
-                  } else {
-                    lineBase = (unitSale - unitDrop) * qty
-                  }
-
-                  if (g.payment === 'bank') lineBase = 0
+                  const hasOverride = (r.payout_override !== null && r.payout_override !== undefined)
+                  let lineBase = hasOverride ? Number(r.payout_override || 0)
+                                             : (unitSale - unitDrop) * qty
+                  if (!hasOverride && g.payment === 'bank') lineBase = 0
 
                   let perLinePayout = 0
-                  if (g.status === 'delivered') {
-                    perLinePayout = lineBase
-                  } else if (g.status === 'refused' || g.status === 'canceled') {
-                    perLinePayout = (r.payout_override !== null && r.payout_override !== undefined) ? lineBase : 0
-                  } else if (g.status === 'paid') {
-                    perLinePayout = lineBase
-                  } else {
-                    perLinePayout = 0
-                  }
+                  if (g.status === 'delivered') perLinePayout = lineBase
+                  else if (g.status === 'refused' || g.status === 'canceled')
+                    perLinePayout = hasOverride ? lineBase : 0
+                  else if (g.status === 'paid') perLinePayout = lineBase
+                  else perLinePayout = 0
 
                   return (
                     <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
@@ -345,7 +323,7 @@ export default function AdminOrders() {
                 })}
               </div>
 
-              {/* Футер замовлення: показ + редагування підсумку */}
+              {/* Футер: показ + редагування підсумку */}
               <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="text-right sm:text-left">
                   <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
@@ -355,27 +333,25 @@ export default function AdminOrders() {
                 <div className="flex items-center gap-2">
                   <input
                     className="input input-xs w-[160px]"
-                    type="number"
-                    step="0.01"
+                    type="text"
                     defaultValue={Number.isFinite(g.payout) ? g.payout.toFixed(2) : ''}
-                    placeholder="Нова сума…"
+                    placeholder="Нова сума… (можна з мінусом)"
                     id={`ovr-${g.order_no}`}
                   />
                   <button
                     className="btn-primary btn-xs"
                     onClick={() => {
                       const el = document.getElementById(`ovr-${g.order_no}`)
-                      const val = el?.value?.trim()
-                      if (val === '' || isNaN(Number(val))) return alert('Введіть число')
-                      setOrderTotalOverride(g.order_no, Number(val))
+                      const raw = (el?.value ?? '').trim()
+                      const val = raw.replace(',', '.')
+                      const num = Number(val)
+                      if (raw === '' || Number.isNaN(num)) return alert('Введіть число')
+                      setOrderTotalOverride(g.order_no, num)
                     }}
                   >
                     Зберегти
                   </button>
-                  <button
-                    className="btn-outline btn-xs"
-                    onClick={() => clearOrderOverride(g.order_no)}
-                  >
+                  <button className="btn-outline btn-xs" onClick={() => clearOrderOverride(g.order_no)}>
                     Очистити
                   </button>
                 </div>
@@ -389,9 +365,7 @@ export default function AdminOrders() {
         <div className="mt-4 text-right">
           <div className="text-[18px]">
             Всього до виплати по вибірці:&nbsp;
-            <span className="price text-[22px]">
-              {totalPayout.toFixed(2)} ₴
-            </span>
+            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
           </div>
         </div>
       )}
