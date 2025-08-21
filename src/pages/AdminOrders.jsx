@@ -16,7 +16,10 @@ const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по рекв�
 function fmtDate(ts) {
   try {
     const d = new Date(ts)
-    return d.toLocaleString('uk-UA', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })
+    return d.toLocaleString('uk-UA', {
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit'
+    })
   } catch { return ts }
 }
 
@@ -51,7 +54,7 @@ export default function AdminOrders() {
   }
   useEffect(() => { load() }, [])
 
-  // Групування + обчислення базової суми та ефективної
+  // Групування + базова/ефективна суми
   const groups = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -88,7 +91,7 @@ export default function AdminOrders() {
       else if (status === 'paid') payout = 0
       else payout = 0
 
-      // СУМА ДЛЯ ВІДОБРАЖЕННЯ на картці (завжди)
+      // Сума для відображення на картці (завжди)
       const display_total = baseSum
 
       return {
@@ -97,8 +100,8 @@ export default function AdminOrders() {
         ttn: first?.ttn || '',
         status,
         payment,
-        display_total,   // показувати завжди
-        payout,          // використовуємо в загальних підсумках
+        display_total,   // показуємо завжди
+        payout,          // для підсумків
         email: first?.user?.email || '',
         full_name: first?.user?.full_name || '',
         recipient_name: first?.recipient_name,
@@ -132,22 +135,13 @@ export default function AdminOrders() {
     return list
   }, [rows, q, sortByEmailAsc])
 
-  // ПІДСУМОК по вибірці: використовуємо ЕФЕКТИВНУ суму
+  // Підсумок по вибірці — ефективна сума
   const totalPayout = useMemo(
     () => groups.reduce((s, g) => s + g.payout, 0),
     [groups]
   )
 
-  async function updateStatus(order_no, newStatus) {
-    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
-    if (!error) await load()
-  }
-  async function updateTTN(order_no, newTTN) {
-    const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
-    if (!error) await load()
-  }
-
-  // Override всього замовлення: перший рядок = вся сума, інші = 0
+  // --- CRUD helpers ---
   async function setOrderTotalOverride(order_no, total) {
     const lines = rows.filter(r => (r.order_no || r.id) === order_no)
     if (!lines.length) return
@@ -171,9 +165,34 @@ export default function AdminOrders() {
   }
 
   async function clearOrderOverride(order_no) {
-    const { error } = await supabase.from('orders').update({ payout_override: null }).eq('order_no', order_no)
+    const { error } = await supabase
+      .from('orders')
+      .update({ payout_override: null })
+      .eq('order_no', order_no)
     if (error) return alert('Помилка очищення: ' + error.message)
     await load()
+  }
+
+  async function updateStatus(order_no, newStatus) {
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus })
+      .eq('order_no', order_no)
+
+    if (!error) {
+      // Автоматично робимо "Разом до виплати" = 0
+      // якщо статус — скасовано або відмова (але дозволяємо потім ручну правку)
+      if (newStatus === 'canceled' || newStatus === 'refused') {
+        await setOrderTotalOverride(order_no, 0)
+      } else {
+        await load()
+      }
+    }
+  }
+
+  async function updateTTN(order_no, newTTN) {
+    const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
+    if (!error) await load()
   }
 
   return (
@@ -298,13 +317,8 @@ export default function AdminOrders() {
                                              : (unitSale - unitDrop) * qty
                   if (!hasOverride && g.payment === 'bank') lineBase = 0
 
-                  let perLinePayout = 0
-                  if (g.status === 'delivered') perLinePayout = lineBase
-                  else if (g.status === 'refused' || g.status === 'canceled')
-                    perLinePayout = hasOverride ? lineBase : 0
-                  else if (g.status === 'paid') perLinePayout = 0
-                  else perLinePayout = 0
-
+                  // пер-рядкова ефективна сума (для підсумків — ми її не відображаємо)
+                  // зберігаємо, але відображаємо саме lineBase
                   return (
                     <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
@@ -316,7 +330,7 @@ export default function AdminOrders() {
                       </div>
                       <div className="text-right">
                         <div className="text-sm text-muted">До виплати</div>
-                        <div className="font-semibold">{perLinePayout.toFixed(2)} ₴</div>
+                        <div className="font-semibold">{lineBase.toFixed(2)} ₴</div>
                       </div>
                     </div>
                   )

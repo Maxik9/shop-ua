@@ -16,7 +16,10 @@ const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по рекв�
 function fmtDate(ts) {
   try {
     const d = new Date(ts)
-    return d.toLocaleString('uk-UA', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })
+    return d.toLocaleString('uk-UA', {
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit'
+    })
   } catch { return ts }
 }
 
@@ -36,13 +39,12 @@ export default function Dashboard() {
         const uid = s?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
-        // Загальний підсумок зверху (RPC — рахує тільки дозволені статуси)
+        // загальний підсумок зверху (RPC уже враховує дозволені статуси)
         try {
           const { data: total } = await supabase.rpc('get_total_payout', { p_user: uid })
           if (mounted) setTotalTop(Number(total || 0))
         } catch (_) {}
 
-        // Список
         const { data, error } = await supabase
           .from('orders')
           .select(`
@@ -65,7 +67,6 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Групування
   const grouped = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -94,15 +95,14 @@ export default function Dashboard() {
         baseSum += line
       }
 
-      // ефективна сума для підсумків
+      // ефективна сума (для підсумків)
       let payout = 0
       if (status === 'delivered') payout = baseSum
       else if (status === 'refused' || status === 'canceled') payout = hasAnyOverride ? baseSum : 0
       else if (status === 'paid') payout = 0
       else payout = 0
 
-      // показ на картці завжди
-      const display_total = baseSum
+      const display_total = baseSum // показувати завжди
 
       return {
         order_no,
@@ -115,15 +115,15 @@ export default function Dashboard() {
         comment: first?.comment || '',
         status,
         payment,
-        display_total, // показуємо завжди
-        payout,        // у підсумках
+        display_total,
+        payout,
         lines,
       }
     })
     return list.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
   }, [rows])
 
-  // Фільтр по ПІБ/телефону
+  // фільтр по ПІБ/телефону
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase()
     if (!t) return grouped
@@ -133,7 +133,7 @@ export default function Dashboard() {
     )
   }, [grouped, q])
 
-  // ПІДСУМОК по видимій вибірці — беремо ЕФЕКТИВНУ суму
+  // Підсумок по видимій вибірці — ефективна сума
   const totalPayoutVisible = useMemo(
     () => filtered.reduce((s, g) => s + g.payout, 0),
     [filtered]
@@ -229,13 +229,6 @@ export default function Dashboard() {
                                              : (unitSale - unitDrop) * qty
                   if (!hasOverride && order.payment === 'bank') lineBase = 0
 
-                  let perLinePayout = 0
-                  if (order.status === 'delivered') perLinePayout = lineBase
-                  else if (order.status === 'refused' || order.status === 'canceled')
-                    perLinePayout = hasOverride ? lineBase : 0
-                  else if (order.status === 'paid') perLinePayout = 0
-                  else perLinePayout = 0
-
                   return (
                     <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
@@ -251,7 +244,7 @@ export default function Dashboard() {
                       </div>
                       <div className="text-right">
                         <div className="text-sm text-muted">До виплати</div>
-                        <div className="font-semibold">{perLinePayout.toFixed(2)} ₴</div>
+                        <div className="font-semibold">{lineBase.toFixed(2)} ₴</div>
                       </div>
                     </div>
                   )
