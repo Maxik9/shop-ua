@@ -11,6 +11,16 @@ const STATUS_UA = {
   refused: 'Відмова',
   paid: 'Виплачено',
 }
+const STATUS_FILTERS = [
+  { v:'all',        t:'Всі статуси' },
+  { v:'new',        t:'Нове' },
+  { v:'processing', t:'В обробці' },
+  { v:'canceled',   t:'Скасовано' },
+  { v:'shipped',    t:'Відправлено' },
+  { v:'delivered',  t:'Отримано' },
+  { v:'refused',    t:'Відмова' },
+  { v:'paid',       t:'Виплачено' },
+]
 const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
 
 function fmtDate(ts) {
@@ -27,7 +37,10 @@ export default function Dashboard() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
   const [q, setQ] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+
   const [totalTop, setTotalTop] = useState(0)
 
   useEffect(() => {
@@ -39,7 +52,7 @@ export default function Dashboard() {
         const uid = s?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
-        // загальний підсумок зверху (RPC уже враховує дозволені статуси)
+        // загальна сума до виплати (через RPC)
         try {
           const { data: total } = await supabase.rpc('get_total_payout', { p_user: uid })
           if (mounted) setTotalTop(Number(total || 0))
@@ -67,6 +80,7 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
+  // групування
   const grouped = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -95,14 +109,13 @@ export default function Dashboard() {
         baseSum += line
       }
 
-      // ефективна сума (для підсумків)
       let payout = 0
       if (status === 'delivered') payout = baseSum
       else if (status === 'refused' || status === 'canceled') payout = hasAnyOverride ? baseSum : 0
       else if (status === 'paid') payout = 0
       else payout = 0
 
-      const display_total = baseSum // показувати завжди
+      const display_total = baseSum
 
       return {
         order_no,
@@ -119,21 +132,24 @@ export default function Dashboard() {
         payout,
         lines,
       }
-    })
-    return list.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+    }).sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+    return list
   }, [rows])
 
-  // фільтр по ПІБ/телефону
+  // застосувати фільтри
   const filtered = useMemo(() => {
+    let list = grouped
+    if (statusFilter !== 'all') list = list.filter(g => g.status === statusFilter)
     const t = q.trim().toLowerCase()
-    if (!t) return grouped
-    return grouped.filter(g =>
-      (g.recipient_name || '').toLowerCase().includes(t) ||
-      (g.recipient_phone || '').toLowerCase().includes(t)
-    )
-  }, [grouped, q])
+    if (t) {
+      list = list.filter(g =>
+        (g.recipient_name || '').toLowerCase().includes(t) ||
+        (g.recipient_phone || '').toLowerCase().includes(t)
+      )
+    }
+    return list
+  }, [grouped, statusFilter, q])
 
-  // Підсумок по видимій вибірці — ефективна сума
   const totalPayoutVisible = useMemo(
     () => filtered.reduce((s, g) => s + g.payout, 0),
     [filtered]
@@ -141,7 +157,7 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
-      {/* Загальний підсумок зверху */}
+      {/* загальний підсумок зверху */}
       <div className="card mb-4">
         <div className="card-body flex items-center justify-between">
           <div className="font-medium">Разом до виплати</div>
@@ -149,9 +165,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-4">
         <h1 className="h1">Мої замовлення</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="input input-xs w-[180px]"
+            value={statusFilter}
+            onChange={e=>setStatusFilter(e.target.value)}
+          >
+            {STATUS_FILTERS.map(o => <option key={o.v} value={o.v}>{o.t}</option>)}
+          </select>
           <input
             className="input input-xs w-[260px] sm:w-[320px]"
             placeholder="Пошук: ПІБ або телефон одержувача…"
@@ -251,7 +274,6 @@ export default function Dashboard() {
                 })}
               </div>
 
-              {/* Показуємо ЗАВЖДИ */}
               <div className="mt-3 text-right">
                 <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
                 <span className="price text-[18px] font-semibold">{order.display_total.toFixed(2)} ₴</span>

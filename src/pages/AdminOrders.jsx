@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { Link } from 'react-router-dom'
 
 const STATUS_OPTIONS = [
+  { v: 'all',        t: 'Всі статуси' },
   { v: 'new',        t: 'Нове' },
   { v: 'processing', t: 'В обробці' },
   { v: 'canceled',   t: 'Скасовано' },
@@ -10,6 +11,11 @@ const STATUS_OPTIONS = [
   { v: 'delivered',  t: 'Отримано' },
   { v: 'refused',    t: 'Відмова' },
   { v: 'paid',       t: 'Виплачено' },
+]
+const PAY_FILTERS = [
+  { v: 'all',  t: 'Будь-яка оплата' },
+  { v: 'cod',  t: 'Післяплата' },
+  { v: 'bank', t: 'Оплата по реквізитам' },
 ]
 const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
 
@@ -27,8 +33,15 @@ export default function AdminOrders() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // пошук + сортування
   const [q, setQ] = useState('')
   const [sortByEmailAsc, setSortByEmailAsc] = useState(true)
+
+  // фільтри
+  const [fStatus, setFStatus] = useState('all')
+  const [fPayment, setFPayment] = useState('all')
+  const [fUser, setFUser] = useState('all') // user_id
 
   async function load() {
     setLoading(true); setError('')
@@ -54,7 +67,20 @@ export default function AdminOrders() {
   }
   useEffect(() => { load() }, [])
 
-  // Групування + базова/ефективна суми
+  // унікальні дропшипери (для селекту)
+  const usersList = useMemo(() => {
+    const m = new Map()
+    rows.forEach(r => {
+      const u = r.user
+      if (u?.user_id && !m.has(u.user_id)) {
+        m.set(u.user_id, { id: u.user_id, email: u.email || '(без email)' })
+      }
+    })
+    const arr = Array.from(m.values()).sort((a,b) => (a.email||'').localeCompare(b.email||''))
+    return [{ id:'all', email:'Усі дропшипери' }, ...arr]
+  }, [rows])
+
+  // групування + обчислення
   const groups = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -84,14 +110,13 @@ export default function AdminOrders() {
         baseSum += line
       }
 
-      // ЕФЕКТИВНА сума для підсумків
+      // ефективна сума (для підсумків)
       let payout = 0
       if (status === 'delivered') payout = baseSum
       else if (status === 'refused' || status === 'canceled') payout = hasAnyOverride ? baseSum : 0
       else if (status === 'paid') payout = 0
       else payout = 0
 
-      // Сума для відображення на картці (завжди)
       const display_total = baseSum
 
       return {
@@ -100,10 +125,12 @@ export default function AdminOrders() {
         ttn: first?.ttn || '',
         status,
         payment,
-        display_total,   // показуємо завжди
-        payout,          // для підсумків
+        display_total,
+        payout,
         email: first?.user?.email || '',
         full_name: first?.user?.full_name || '',
+        userId: first?.user?.user_id || null,
+
         recipient_name: first?.recipient_name,
         recipient_phone: first?.recipient_phone,
         settlement: first?.settlement || '',
@@ -113,6 +140,7 @@ export default function AdminOrders() {
       }
     })
 
+    // пошук
     const t = q.trim().toLowerCase()
     if (t) {
       list = list.filter(g =>
@@ -124,6 +152,14 @@ export default function AdminOrders() {
       )
     }
 
+    // фільтр за статусом
+    if (fStatus !== 'all') list = list.filter(g => g.status === fStatus)
+    // фільтр за оплатою
+    if (fPayment !== 'all') list = list.filter(g => g.payment === fPayment)
+    // фільтр за дропшипером
+    if (fUser !== 'all') list = list.filter(g => g.userId === fUser)
+
+    // сортування
     list.sort((a,b) => {
       if (q.includes('@')) {
         const cmp = (a.email||'').localeCompare((b.email||''))
@@ -133,15 +169,15 @@ export default function AdminOrders() {
     })
 
     return list
-  }, [rows, q, sortByEmailAsc])
+  }, [rows, q, sortByEmailAsc, fStatus, fPayment, fUser])
 
-  // Підсумок по вибірці — ефективна сума
-  const totalPayout = useMemo(
+  // підсумок по видимій вибірці
+  const totalPayoutVisible = useMemo(
     () => groups.reduce((s, g) => s + g.payout, 0),
     [groups]
   )
 
-  // --- CRUD helpers ---
+  // --- CRUD helpers (без змін) ---
   async function setOrderTotalOverride(order_no, total) {
     const lines = rows.filter(r => (r.order_no || r.id) === order_no)
     if (!lines.length) return
@@ -163,7 +199,6 @@ export default function AdminOrders() {
     }
     await load()
   }
-
   async function clearOrderOverride(order_no) {
     const { error } = await supabase
       .from('orders')
@@ -172,7 +207,6 @@ export default function AdminOrders() {
     if (error) return alert('Помилка очищення: ' + error.message)
     await load()
   }
-
   async function updateStatus(order_no, newStatus) {
     const { error } = await supabase
       .from('orders')
@@ -180,8 +214,6 @@ export default function AdminOrders() {
       .eq('order_no', order_no)
 
     if (!error) {
-      // Автоматично робимо "Разом до виплати" = 0
-      // якщо статус — скасовано або відмова (але дозволяємо потім ручну правку)
       if (newStatus === 'canceled' || newStatus === 'refused') {
         await setOrderTotalOverride(order_no, 0)
       } else {
@@ -189,7 +221,6 @@ export default function AdminOrders() {
       }
     }
   }
-
   async function updateTTN(order_no, newTTN) {
     const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
     if (!error) await load()
@@ -197,8 +228,25 @@ export default function AdminOrders() {
 
   return (
     <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-        <h1 className="h1">Замовлення (адмін)</h1>
+      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 mb-4">
+        <div>
+          <h1 className="h1 mb-2">Замовлення (адмін)</h1>
+
+          {/* Фільтри */}
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="input input-xs w-[180px]" value={fStatus} onChange={e=>setFStatus(e.target.value)}>
+              {STATUS_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.t}</option>)}
+            </select>
+            <select className="input input-xs w-[180px]" value={fPayment} onChange={e=>setFPayment(e.target.value)}>
+              {PAY_FILTERS.map(o => <option key={o.v} value={o.v}>{o.t}</option>)}
+            </select>
+            <select className="input input-xs w-[240px]" value={fUser} onChange={e=>setFUser(e.target.value)}>
+              {usersList.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Пошук/сортування */}
         <div className="flex flex-wrap items-center gap-2">
           <input
             className="input input-xs w-[260px] sm:w-[320px]"
@@ -216,6 +264,18 @@ export default function AdminOrders() {
           <Link to="/" className="btn-outline">До каталогу</Link>
         </div>
       </div>
+
+      {/* Якщо вибрано конкретного дропшипера — покажемо скільки йому треба виплатити */}
+      {fUser !== 'all' && (
+        <div className="card mb-4">
+          <div className="card-body flex items-center justify-between">
+            <div className="font-medium">
+              Сума до виплати вибраному дропшиперу (з урахуванням статусів)
+            </div>
+            <div className="text-2xl font-bold">{totalPayoutVisible.toFixed(2)} ₴</div>
+          </div>
+        </div>
+      )}
 
       {loading && <div className="card"><div className="card-body">Завантаження…</div></div>}
       {error && (
@@ -254,7 +314,7 @@ export default function AdminOrders() {
                       value={g.status}
                       onChange={e=>updateStatus(g.order_no, e.target.value)}
                     >
-                      {STATUS_OPTIONS.map(o => (
+                      {STATUS_OPTIONS.filter(s=>s.v!=='all').map(o => (
                         <option key={o.v} value={o.v}>{o.t}</option>
                       ))}
                     </select>
@@ -317,8 +377,6 @@ export default function AdminOrders() {
                                              : (unitSale - unitDrop) * qty
                   if (!hasOverride && g.payment === 'bank') lineBase = 0
 
-                  // пер-рядкова ефективна сума (для підсумків — ми її не відображаємо)
-                  // зберігаємо, але відображаємо саме lineBase
                   return (
                     <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
@@ -337,7 +395,7 @@ export default function AdminOrders() {
                 })}
               </div>
 
-              {/* Футер: показуємо ЗАВЖДИ базову (display_total) */}
+              {/* Футер (завжди показує базу) */}
               <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="text-right sm:text-left">
                   <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
@@ -379,7 +437,7 @@ export default function AdminOrders() {
         <div className="mt-4 text-right">
           <div className="text-[18px]">
             Всього до виплати по вибірці:&nbsp;
-            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
+            <span className="price text-[22px]">{totalPayoutVisible.toFixed(2)} ₴</span>
           </div>
         </div>
       )}
