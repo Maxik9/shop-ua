@@ -6,29 +6,28 @@ import { supabase } from "../supabaseClient";
 export default function Login() {
   const nav = useNavigate();
 
-  // було: useState<"signin" | "signup">("signin")
-  const [tab, setTab] = useState("signin"); // "signin" | "signup"
+  // "signin" | "signup"
+  const [tab, setTab] = useState("signin");
 
-  // signin
+  // -------- state: sign in
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPwdIn, setShowPwdIn] = useState(false);
 
-  // signup
+  // -------- state: sign up
+  const [sFullName, setSFullName] = useState("");
   const [sEmail, setSEmail] = useState("");
   const [sPassword, setSPassword] = useState("");
-  const [sFullName, setSFullName] = useState("");
+  const [showPwdUp, setShowPwdUp] = useState(false);
 
-  // ui
+  // -------- ui
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
 
-  const resetMessages = () => {
-    setErr("");
-    setMsg("");
-  };
+  const resetMessages = () => { setErr(""); setMsg(""); };
 
-  // -------- SIGN IN --------
+  // ---------- actions ----------
   const onSignin = async (e) => {
     e.preventDefault();
     resetMessages();
@@ -39,10 +38,9 @@ export default function Login() {
     });
     setLoading(false);
     if (error) return setErr(error.message);
-    nav("/"); // успішний вхід
+    nav("/");
   };
 
-  // -------- SIGN UP --------
   const onSignup = async (e) => {
     e.preventDefault();
     resetMessages();
@@ -57,12 +55,11 @@ export default function Login() {
     });
     setLoading(false);
     if (error) return setErr(error.message);
-    setMsg("Реєстрація успішна. Перевірте пошту — лист підтвердження може бути у «Спам».");
+    setMsg("Реєстрація успішна. Перевірте пошту — лист підтвердження може потрапити у «Спам».");
     setTab("signin");
     setEmail(sEmail);
   };
 
-  // -------- RESET PASSWORD --------
   const onReset = async () => {
     resetMessages();
     if (!email.trim()) return setErr("Вкажіть email для відновлення пароля.");
@@ -75,32 +72,42 @@ export default function Login() {
     setMsg("Надіслали посилання для відновлення пароля на вашу пошту.");
   };
 
+  // ---------- ui ----------
+  const TabButton = ({ id, children }) => (
+    <button
+      type="button"
+      className={`btn-tab ${tab === id ? "active" : ""}`}
+      onClick={() => { resetMessages(); setTab(id); }}
+      aria-current={tab === id ? "page" : undefined}
+    >
+      {children}
+    </button>
+  );
+
   return (
     <div className="container-page mt-header">
       <div className="max-w-md mx-auto">
-        <div className="card">
+        <div className="card shadow-lg">
           <div className="card-body">
             {/* Tabs */}
-            <div className="flex items-center gap-3 mb-6">
-              <button
-                className={`btn-tab ${tab === "signin" ? "active" : ""}`}
-                onClick={() => { resetMessages(); setTab("signin"); }}
-              >
-                Вхід
-              </button>
-              <button
-                className={`btn-tab ${tab === "signup" ? "active" : ""}`}
-                onClick={() => { resetMessages(); setTab("signup"); }}
-              >
-                Реєстрація
-              </button>
+            <div className="flex items-center gap-2 mb-5">
+              <TabButton id="signin">Вхід</TabButton>
+              <TabButton id="signup">Реєстрація</TabButton>
             </div>
 
             {/* Alerts */}
-            {err && <div className="alert alert-error mb-4"><span>{err}</span></div>}
-            {msg && <div className="alert alert-success mb-4"><span>{msg}</span></div>}
+            {err && (
+              <div className="alert alert-error mb-4">
+                <span>{err}</span>
+              </div>
+            )}
+            {msg && (
+              <div className="alert alert-success mb-4">
+                <span>{msg}</span>
+              </div>
+            )}
 
-            {/* -------- TAB: SIGN IN -------- */}
+            {/* -------- SIGN IN -------- */}
             {tab === "signin" && (
               <form className="space-y-4" onSubmit={onSignin}>
                 <label className="label">
@@ -118,19 +125,35 @@ export default function Login() {
 
                 <label className="label">
                   <span className="label-text">Пароль</span>
-                  <input
-                    type="password"
-                    className="input"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPwdIn ? "text" : "password"}
+                      className="input pr-12"
+                      placeholder="Ваш пароль"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwdIn((s) => !s)}
+                      className="btn-link absolute right-3 top-1/2 -translate-y-1/2 text-sm"
+                      aria-label={showPwdIn ? "Сховати пароль" : "Показати пароль"}
+                      tabIndex={-1}
+                    >
+                      {showPwdIn ? "Сховати" : "Показати"}
+                    </button>
+                  </div>
                 </label>
 
                 <div className="flex items-center justify-between">
-                  <button type="button" className="btn-link text-sm" onClick={onReset} disabled={loading}>
+                  <button
+                    type="button"
+                    className="btn-link text-sm"
+                    onClick={onReset}
+                    disabled={loading}
+                  >
                     Забули пароль?
                   </button>
                 </div>
@@ -139,8 +162,15 @@ export default function Login() {
                   {loading ? "Входимо…" : "Увійти"}
                 </button>
 
-                {/* Додатковий CTA під формою входу */}
-                <div className="text-center mt-3 text-sm">
+                {/* Divider */}
+                <div className="flex items-center gap-3 my-2">
+                  <div className="h-px flex-1 bg-slate-200" />
+                  <div className="text-xs uppercase text-slate-500">або</div>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+
+                {/* CTA to signup */}
+                <div className="text-center text-sm">
                   Немає акаунта?{" "}
                   <button
                     type="button"
@@ -153,13 +183,17 @@ export default function Login() {
               </form>
             )}
 
-            {/* -------- TAB: SIGN UP -------- */}
+            {/* -------- SIGN UP -------- */}
             {tab === "signup" && (
               <form className="space-y-4" onSubmit={onSignup}>
                 <label className="label">
                   <span className="label-text">Ім’я (необов’язково)</span>
-                  <input className="input" placeholder="Ваше ім’я"
-                         value={sFullName} onChange={(e) => setSFullName(e.target.value)} />
+                  <input
+                    className="input"
+                    placeholder="Ваше ім’я"
+                    value={sFullName}
+                    onChange={(e) => setSFullName(e.target.value)}
+                  />
                 </label>
 
                 <label className="label">
@@ -177,25 +211,45 @@ export default function Login() {
 
                 <label className="label">
                   <span className="label-text">Пароль</span>
-                  <input
-                    type="password"
-                    className="input"
-                    placeholder="Мінімум 6 символів"
-                    value={sPassword}
-                    onChange={(e) => setSPassword(e.target.value)}
-                    autoComplete="new-password"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPwdUp ? "text" : "password"}
+                      className="input pr-12"
+                      placeholder="Мінімум 6 символів"
+                      value={sPassword}
+                      onChange={(e) => setSPassword(e.target.value)}
+                      autoComplete="new-password"
+                      minLength={6}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwdUp((s) => !s)}
+                      className="btn-link absolute right-3 top-1/2 -translate-y-1/2 text-sm"
+                      aria-label={showPwdUp ? "Сховати пароль" : "Показати пароль"}
+                      tabIndex={-1}
+                    >
+                      {showPwdUp ? "Сховати" : "Показати"}
+                    </button>
+                  </div>
                 </label>
 
                 <div className="flex gap-3">
-                  <button type="button" className="btn-outline flex-1" onClick={() => { resetMessages(); setTab("signin"); }}>
+                  <button
+                    type="button"
+                    className="btn-outline flex-1"
+                    onClick={() => { resetMessages(); setTab("signin"); }}
+                  >
                     Назад
                   </button>
                   <button type="submit" className="btn-primary flex-1" disabled={loading}>
                     {loading ? "Реєструємо…" : "Зареєструватись"}
                   </button>
                 </div>
+
+                <p className="text-xs text-slate-500 text-center">
+                  Реєструючись, ви погоджуєтесь з умовами сервісу.
+                </p>
               </form>
             )}
           </div>
