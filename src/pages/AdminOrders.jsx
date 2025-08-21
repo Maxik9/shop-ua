@@ -34,14 +34,14 @@ export default function AdminOrders() {
     ;(async () => {
       setLoading(true); setError('')
       try {
-        // Завантажуємо лінії замовлень + потрібні поля для обчислень
+        // ВАЖЛИВО: без коментарів усередині .select(...)
         const { data, error } = await supabase
           .from('orders')
           .select(`
             id, order_no, created_at, status, qty, my_price, ttn, payment_method,
             recipient_name, recipient_phone, settlement, nova_poshta_branch,
             comment,
-            payout_override,       -- ДОПОВНЕНО: ручна сума по рядку
+            payout_override,
             product:products ( id, name, image_url, price_dropship ),
             user:profiles ( user_id, email, full_name )
           `)
@@ -69,15 +69,9 @@ export default function AdminOrders() {
 
     let list = Array.from(map.entries()).map(([order_no, lines]) => {
       const first = lines[0]
-      // якщо статуси різні — показуємо «В обробці» як агрегований стан
       const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
       const payment = first?.payment_method || 'cod'
 
-      // базова сума виплати по замовленню (без урахування статусу):
-      // - якщо payment === 'bank' → 0
-      // - інакше: сумуємо по рядках:
-      //     якщо payout_override заданий → беремо його (вважаємо, що це сума за рядок)
-      //     інакше (my_price - price_dropship) * qty
       let baseSum = 0
       let hasAnyOverride = false
       for (const r of lines) {
@@ -94,22 +88,15 @@ export default function AdminOrders() {
         }
         baseSum += line
       }
-      // враховуємо спосіб оплати
       if (payment === 'bank') baseSum = 0
 
-      // тепер застосовуємо бізнес-правило по статусу:
-      // delivered → беремо baseSum
-      // refused   → якщо є override на будь-якому рядку — беремо baseSum (може бути від’ємним), інакше 0
-      // canceled  → якщо є override → baseSum, інакше 0
-      // paid      → Нуль до загальної суми (внизу ми ще раз відфільтруємо), але для відображення можна показати baseSum
-      // new/processing/shipped → 0
       let payout = 0
       if (status === 'delivered') {
         payout = baseSum
       } else if (status === 'refused' || status === 'canceled') {
         payout = hasAnyOverride ? baseSum : 0
       } else if (status === 'paid') {
-        payout = baseSum // відобразимо як довідкове, але нижче не додамо у загальний підсумок
+        payout = baseSum // відображаємо довідково; нижче не додаємо у підсумок
       } else {
         payout = 0
       }
@@ -124,7 +111,7 @@ export default function AdminOrders() {
         ttn: first?.ttn || '',
         status,
         payment,
-        payout,                 // Разом до виплати по замовленню (з урахуванням правил)
+        payout,
         email,
         full_name,
         recipient_name: first?.recipient_name,
@@ -136,7 +123,6 @@ export default function AdminOrders() {
       }
     })
 
-    // Пошук
     const t = q.trim().toLowerCase()
     if (t) {
       list = list.filter(g =>
@@ -148,7 +134,6 @@ export default function AdminOrders() {
       )
     }
 
-    // Сортування за email (коли шукаємо по email), інакше — за датою
     list.sort((a,b) => {
       if (q.includes('@')) {
         const cmp = (a.email||'').localeCompare((b.email||''))
@@ -160,18 +145,15 @@ export default function AdminOrders() {
     return list
   }, [rows, q, sortByEmailAsc])
 
-  // Загальна сума до виплати по вибірці
   const totalPayout = useMemo(() =>
     groups.reduce((s, g) => s + (g.status === 'paid' ? 0 : g.payout), 0),
   [groups])
 
-  // Масова зміна статусу для order_no
   async function updateStatus(order_no, newStatus) {
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
     if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, status: newStatus } : r))
   }
 
-  // Масова зміна ТТН для order_no
   async function updateTTN(order_no, newTTN) {
     const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
     if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, ttn: newTTN } : r))
@@ -297,7 +279,6 @@ export default function AdminOrders() {
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
 
-                  // базова виплата по рядку (без статусу і способу оплати)
                   let lineBase = 0
                   if (r.payout_override !== null && r.payout_override !== undefined) {
                     lineBase = Number(r.payout_override || 0)
@@ -305,17 +286,15 @@ export default function AdminOrders() {
                     lineBase = (unitSale - unitDrop) * qty
                   }
 
-                  // якщо оплата "bank" — по твоїй старій логіці виплата 0
                   if (g.payment === 'bank') lineBase = 0
 
-                  // показуємо «До виплати» по рядку згідно статусу замовлення
                   let perLinePayout = 0
                   if (g.status === 'delivered') {
                     perLinePayout = lineBase
                   } else if (g.status === 'refused' || g.status === 'canceled') {
                     perLinePayout = (r.payout_override !== null && r.payout_override !== undefined) ? lineBase : 0
                   } else if (g.status === 'paid') {
-                    perLinePayout = lineBase // довідково
+                    perLinePayout = lineBase
                   } else {
                     perLinePayout = 0
                   }
