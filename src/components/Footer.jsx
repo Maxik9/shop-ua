@@ -1,42 +1,7 @@
 // src/components/Footer.jsx
-import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
-import { supabase } from "../supabaseClient"
 
-export default function Footer() {
-  const [isAdmin, setIsAdmin] = useState(false)
-
-  useEffect(() => {
-    let mounted = true
-    const load = async () => {
-      // 1) хто залогінений?
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) {
-        if (mounted) setIsAdmin(false)
-        return
-      }
-
-      // 2) витягнути свою роль з profiles (RLS дозволяє читати тільки свій профіль)
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", session.user.id)
-        .maybeSingle()
-
-      if (mounted) setIsAdmin(!error && data?.role === "admin")
-    }
-
-    load()
-
-    // оновлювати при логіні/логауті
-    const { data: sub } = supabase.auth.onAuthStateChange(() => load())
-
-    return () => {
-      mounted = false
-      sub?.subscription?.unsubscribe?.()
-    }
-  }, [])
-
+export default function Footer({ isAdmin = false }) {
   return (
     <footer className="bg-slate-100 mt-10">
       <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8 text-center sm:text-left">
@@ -57,7 +22,6 @@ export default function Footer() {
             <ul className="space-y-1 text-sm">
               <li><Link className="hover:text-indigo-600" to="/">Каталог</Link></li>
               <li><Link className="hover:text-indigo-600" to="/dashboard">Мої замовлення</Link></li>
-              {/* Показуємо тільки якщо роль = admin */}
               {isAdmin && (
                 <li><Link className="hover:text-indigo-600" to="/admin">Адмін панель</Link></li>
               )}

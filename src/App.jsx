@@ -33,6 +33,7 @@ import AdminImport from './pages/AdminImport'
 
 export default function App() {
   const [session, setSession] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)   // 👈 додали
 
   useEffect(() => {
     let mounted = true
@@ -48,6 +49,25 @@ export default function App() {
     })()
     return () => { mounted = false }
   }, [])
+
+  // 👇 визначаємо роль тільки тут, а не у футері
+  useEffect(() => {
+    let active = true
+    const checkRole = async () => {
+      if (!session?.user?.id) { 
+        if (active) setIsAdmin(false)
+        return
+      }
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .maybeSingle()
+      if (active) setIsAdmin(!error && data?.role === 'admin')
+    }
+    checkRole()
+    return () => { active = false }
+  }, [session?.user?.id])
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -86,7 +106,8 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      <Footer />
+      {/* 👇 передаємо прапорець у футер */}
+      <Footer isAdmin={isAdmin} />
     </div>
   )
 }
