@@ -6,7 +6,8 @@ import { supabase } from "../supabaseClient";
 export default function Login() {
   const nav = useNavigate();
 
-  const [tab, setTab] = useState<"signin" | "signup">("signin");
+  // було: useState<"signin" | "signup">("signin")
+  const [tab, setTab] = useState("signin"); // "signin" | "signup"
 
   // signin
   const [email, setEmail] = useState("");
@@ -51,31 +52,24 @@ export default function Login() {
       password: sPassword,
       options: {
         data: { full_name: sFullName || "" },
-        // якщо підтвердження на email ввімкнене — Supabase надішле лист
-        emailRedirectTo:
-          `${window.location.origin}/login`, // куди поверне після підтвердження
+        emailRedirectTo: `${window.location.origin}/login`,
       },
     });
     setLoading(false);
     if (error) return setErr(error.message);
-    setMsg(
-      "Реєстрація успішна. Перевірте пошту — лист підтвердження може бути у «Спам»."
-    );
+    setMsg("Реєстрація успішна. Перевірте пошту — лист підтвердження може бути у «Спам».");
     setTab("signin");
     setEmail(sEmail);
   };
 
-  // -------- RESET PASSWORD (по email) --------
+  // -------- RESET PASSWORD --------
   const onReset = async () => {
     resetMessages();
     if (!email.trim()) return setErr("Вкажіть email для відновлення пароля.");
     const RESET_PATH = import.meta.env.VITE_RESET_PATH || "/reset-password";
     const redirectTo = `${window.location.origin}${RESET_PATH}`;
     setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(
-      email.trim(),
-      { redirectTo }
-    );
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
     setLoading(false);
     if (error) return setErr(error.message);
     setMsg("Надіслали посилання для відновлення пароля на вашу пошту.");
@@ -84,42 +78,27 @@ export default function Login() {
   return (
     <div className="container-page mt-header">
       <div className="max-w-md mx-auto">
-        {/* card */}
         <div className="card">
           <div className="card-body">
             {/* Tabs */}
             <div className="flex items-center gap-3 mb-6">
               <button
                 className={`btn-tab ${tab === "signin" ? "active" : ""}`}
-                onClick={() => {
-                  resetMessages();
-                  setTab("signin");
-                }}
+                onClick={() => { resetMessages(); setTab("signin"); }}
               >
                 Вхід
               </button>
               <button
                 className={`btn-tab ${tab === "signup" ? "active" : ""}`}
-                onClick={() => {
-                  resetMessages();
-                  setTab("signup");
-                }}
+                onClick={() => { resetMessages(); setTab("signup"); }}
               >
                 Реєстрація
               </button>
             </div>
 
             {/* Alerts */}
-            {err && (
-              <div className="alert alert-error mb-4">
-                <span>{err}</span>
-              </div>
-            )}
-            {msg && (
-              <div className="alert alert-success mb-4">
-                <span>{msg}</span>
-              </div>
-            )}
+            {err && <div className="alert alert-error mb-4"><span>{err}</span></div>}
+            {msg && <div className="alert alert-success mb-4"><span>{msg}</span></div>}
 
             {/* -------- TAB: SIGN IN -------- */}
             {tab === "signin" && (
@@ -151,21 +130,12 @@ export default function Login() {
                 </label>
 
                 <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    className="btn-link text-sm"
-                    onClick={onReset}
-                    disabled={loading}
-                  >
+                  <button type="button" className="btn-link text-sm" onClick={onReset} disabled={loading}>
                     Забули пароль?
                   </button>
                 </div>
 
-                <button
-                  type="submit"
-                  className="btn-primary w-full"
-                  disabled={loading}
-                >
+                <button type="submit" className="btn-primary w-full" disabled={loading}>
                   {loading ? "Входимо…" : "Увійти"}
                 </button>
 
@@ -175,11 +145,7 @@ export default function Login() {
                   <button
                     type="button"
                     className="btn-link"
-                    onClick={() => {
-                      resetMessages();
-                      setSEmail(email); // підставимо введений email у форму реєстрації
-                      setTab("signup");
-                    }}
+                    onClick={() => { resetMessages(); setSEmail(email); setTab("signup"); }}
                   >
                     Зареєструватись
                   </button>
@@ -192,12 +158,8 @@ export default function Login() {
               <form className="space-y-4" onSubmit={onSignup}>
                 <label className="label">
                   <span className="label-text">Ім’я (необов’язково)</span>
-                  <input
-                    className="input"
-                    placeholder="Ваше ім’я"
-                    value={sFullName}
-                    onChange={(e) => setSFullName(e.target.value)}
-                  />
+                  <input className="input" placeholder="Ваше ім’я"
+                         value={sFullName} onChange={(e) => setSFullName(e.target.value)} />
                 </label>
 
                 <label className="label">
@@ -227,21 +189,10 @@ export default function Login() {
                 </label>
 
                 <div className="flex gap-3">
-                  <button
-                    type="button"
-                    className="btn-outline flex-1"
-                    onClick={() => {
-                      resetMessages();
-                      setTab("signin");
-                    }}
-                  >
+                  <button type="button" className="btn-outline flex-1" onClick={() => { resetMessages(); setTab("signin"); }}>
                     Назад
                   </button>
-                  <button
-                    type="submit"
-                    className="btn-primary flex-1"
-                    disabled={loading}
-                  >
+                  <button type="submit" className="btn-primary flex-1" disabled={loading}>
                     {loading ? "Реєструємо…" : "Зареєструватись"}
                   </button>
                 </div>
@@ -253,12 +204,3 @@ export default function Login() {
     </div>
   );
 }
-
-/* 
-Очікувані CSS/Tailwind утиліти з твого проекту:
-- card / card-body
-- btn-primary, btn-outline, btn-link, btn-tab (та .btn-tab.active)
-- label, label-text, input
-- alert, alert-error, alert-success
-Якщо якихось утиліт немає — підкажи, я швидко адаптую під твої класи.
-*/

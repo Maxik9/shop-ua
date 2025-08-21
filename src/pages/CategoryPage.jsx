@@ -1,215 +1,91 @@
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "../supabaseClient";
-import ProductCard from "../components/ProductCard";
-
-const SORT_OPTIONS = [
-  { value: "alpha", label: "За алфавітом" },
-  { value: "price_asc", label: "Ціна: за зростанням" },
-  { value: "price_desc", label: "Ціна: за спаданням" },
-  { value: "popular", label: "Популярні" },
-];
 
 export default function CategoryPage() {
-  // Працює і з :key, і з :slug (беремо те, що є)
-  const { key, slug } = useParams();
-  const urlKey = slug || key;
-
+  const { slug } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [category, setCategory] = useState(null);
-  const [parentSlug, setParentSlug] = useState(null);
-  const [subcats, setSubcats] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ---- Сортування: двостороння синхронізація state <-> URL ----
-  // 1) початкове значення з URL
-  const [sort, setSort] = useState(searchParams.get("sort") || "alpha");
-
-  // 2) коли міняємо state -> пушимо в URL (НЕ replace, щоб працювало «Назад»)
-  useEffect(() => {
-    setSearchParams(prev => {
-      const sp = new URLSearchParams(prev);
-      sp.set("sort", sort);
-      return sp;
-    }, { replace: false });
-  }, [sort, setSearchParams]);
-
-  // 3) коли міняється URL (через «Назад» у браузері) -> оновлюємо state
-  useEffect(() => {
-    const s = searchParams.get("sort") || "alpha";
-    setSort(s);
-  }, [searchParams]);
-
-  // Кнопка "Назад": спочатку до батьківської категорії (якщо є), інакше в каталог
-  const goBack = () => {
-    if (parentSlug) navigate(`/category/${parentSlug}`);
-    else navigate("/catalog");
-  };
+  const sort = searchParams.get("sort") || "alpha";
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
+    const fetchData = async () => {
       setLoading(true);
-
-      // 1) Категорія: шукаємо по slug, якщо нема — по id
-      const fields = "id, name, slug, image_url, parent_id";
-      let { data: cat, error } = await supabase
+      // отримаємо категорію
+      const { data: cat } = await supabase
         .from("categories")
-        .select(fields)
-        .eq("slug", urlKey)
-        .maybeSingle();
-
-      if (!cat && !error) {
-        const byId = await supabase
-          .from("categories")
-          .select(fields)
-          .eq("id", urlKey)
-          .maybeSingle();
-        cat = byId.data || null;
-        error = byId.error;
-      }
-
-      if (!alive) return;
-
-      if (error) console.error(error);
-      if (!cat) {
-        setCategory(null);
-        setSubcats([]);
-        setProducts([]);
-        setParentSlug(null);
-        setLoading(false);
-        return;
-      }
+        .select("*")
+        .eq("slug", slug)
+        .single();
 
       setCategory(cat);
 
-      // 1а) Батьківський slug (окремим запитом)
-      if (cat.parent_id) {
-        const { data: parent } = await supabase
-          .from("categories")
-          .select("slug")
-          .eq("id", cat.parent_id)
-          .maybeSingle();
-        setParentSlug(parent?.slug || null);
-      } else {
-        setParentSlug(null);
-      }
+      // товари
+      let query = supabase.from("items").select("*").eq("category_id", cat?.id);
 
-      // 2) Підкатегорії
-      const { data: subs, error: subErr } = await supabase.rpc(
-        "get_subcategories_with_counts",
-        { p_parent: cat.id }
-      );
-      if (subErr) console.error(subErr);
+      if (sort === "price_asc") query = query.order("price", { ascending: true });
+      else if (sort === "price_desc") query = query.order("price", { ascending: false });
+      else query = query.order("title", { ascending: true });
 
-      // 3) Товари з усього піддерева + сортування
-      const { data: prods, error: prodErr } = await supabase.rpc(
-        "get_category_products",
-        { p_category: cat.id, p_sort: sort, p_limit: 1000, p_offset: 0 }
-      );
-      if (prodErr) console.error(prodErr);
-
-      if (!alive) return;
-      setSubcats(subs || []);
-      setProducts(prods || []);
+      const { data: items } = await query;
+      setItems(items || []);
       setLoading(false);
-    })();
+    };
 
-    return () => { alive = false; };
-  }, [urlKey, sort]);
+    fetchData();
+  }, [slug, sort]);
 
-  // ===================== RENDER =====================
-  if (loading) {
-    return (
-      <div className="container-page mt-header">
-        <h1 className="h1 mb-4">Завантаження…</h1>
-      </div>
-    );
-  }
+  // Кнопка "Назад": якщо є історія — крок назад; інакше на головну
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate("/");
+  };
 
-  if (!category) {
-    return (
-      <div className="container-page mt-header">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="h1">Категорію не знайдено</h1>
-          <button onClick={goBack} className="inline-flex items-center gap-2 text-sm btn-outline">
-            ← Назад
-          </button>
-        </div>
-        <div className="text-muted">Перевір, будь ласка, адресу.</div>
-      </div>
-    );
-  }
+  const handleSortChange = (e) => {
+    const next = e.target.value;
+    const params = new URLSearchParams(searchParams);
+    params.set("sort", next);
+    setSearchParams(params, { replace: false });
+  };
+
+  if (loading) return <div className="container-page mt-header">Завантаження…</div>;
+
+  if (!category) return <div className="container-page mt-header">Категорію не знайдено</div>;
 
   return (
     <div className="container-page mt-header">
-      {/* Заголовок + Назад справа (твій стиль збережено) */}
       <div className="flex items-center justify-between mb-4">
-        <h1 className="h1">{category.name}</h1>
-        <button onClick={goBack} className="inline-flex items-center gap-2 text-sm btn-outline">
+        <button onClick={goBack} className="btn-outline">
           ← Назад
         </button>
+        <h1 className="text-xl font-bold">{category.title}</h1>
+        <div></div>
       </div>
 
-      {/* Підкатегорії (твоя сітка/класи збережені) */}
-      {subcats?.length > 0 && (
-        <div className="mb-6">
-          <h2 className="h2 mb-3">Підкатегорії</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {subcats.map((c) => (
-              <Link
-                key={c.id}
-                to={`/category/${c.slug || c.id}`}
-                className="card hover:shadow-md transition"
-              >
-                <div className="card-body">
-                  <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden mb-3">
-                    {c.image_url && (
-                      <img
-                        src={c.image_url}
-                        alt={c.name}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    )}
-                  </div>
-                  <div className="font-medium">{c.name}</div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="mb-4">
+        <select className="select" value={sort} onChange={handleSortChange}>
+          <option value="alpha">За назвою (А–Я)</option>
+          <option value="price_asc">За ціною (зрост.)</option>
+          <option value="price_desc">За ціною (спад.)</option>
+        </select>
+      </div>
 
-      {/* Сортування — тільки для товарів (твоя панель, тільки логіку оновлено) */}
-      {products?.length > 0 && (
-        <div className="flex items-center justify-end mb-3">
-          <label className="text-sm text-gray-600 mr-2">Сортувати товари:</label>
-          <select
-            className="border rounded px-3 py-2 text-sm"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* Товари (твій ProductCard) */}
-      <h2 className="h2 mb-3">Товари</h2>
-      {products?.length === 0 ? (
-        <div className="text-muted">У цій категорії поки немає товарів.</div>
+      {items.length === 0 ? (
+        <p>Немає товарів у цій категорії.</p>
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {products.map((p) => (
-            <ProductCard key={p.id} product={p} />
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {items.map((item) => (
+            <div key={item.id} className="card">
+              <div className="card-body">
+                <h2 className="card-title">{item.title}</h2>
+                <p>{item.price} грн</p>
+              </div>
+            </div>
           ))}
         </div>
       )}
