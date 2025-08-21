@@ -35,8 +35,7 @@ export default function AdminOrders() {
         .select(`
           id, order_no, created_at, status, qty, my_price, ttn, payment_method,
           recipient_name, recipient_phone, settlement, nova_poshta_branch,
-          comment,
-          payout_override,
+          comment, payout_override,
           product:products ( id, name, image_url, price_dropship ),
           user:profiles ( user_id, email, full_name )
         `)
@@ -52,7 +51,7 @@ export default function AdminOrders() {
   }
   useEffect(() => { load() }, [])
 
-  // Групування + правильний розрахунок (override > bank)
+  // Групування + обчислення базової суми та ефективної
   const groups = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -77,22 +76,20 @@ export default function AdminOrders() {
         const hasOverride = (r.payout_override !== null && r.payout_override !== undefined)
         let line = hasOverride ? Number(r.payout_override || 0)
                                : (unitSale - unitDrop) * qty
-
         if (!hasOverride && payment === 'bank') line = 0
         if (hasOverride) hasAnyOverride = true
-
         baseSum += line
       }
 
+      // ЕФЕКТИВНА сума для підсумків
       let payout = 0
-      if (status === 'delivered')      payout = baseSum
+      if (status === 'delivered') payout = baseSum
       else if (status === 'refused' || status === 'canceled') payout = hasAnyOverride ? baseSum : 0
-      else if (status === 'paid')      payout = baseSum     // показуємо, але не додаємо у загальний підсумок нижче
-      else                             payout = 0
+      else if (status === 'paid') payout = 0
+      else payout = 0
 
-      const email = first?.user?.email || ''
-      const full_name = first?.user?.full_name || ''
-      const comment = first?.comment || ''
+      // СУМА ДЛЯ ВІДОБРАЖЕННЯ на картці (завжди)
+      const display_total = baseSum
 
       return {
         order_no,
@@ -100,14 +97,15 @@ export default function AdminOrders() {
         ttn: first?.ttn || '',
         status,
         payment,
-        payout,
-        email,
-        full_name,
+        display_total,   // показувати завжди
+        payout,          // використовуємо в загальних підсумках
+        email: first?.user?.email || '',
+        full_name: first?.user?.full_name || '',
         recipient_name: first?.recipient_name,
         recipient_phone: first?.recipient_phone,
         settlement: first?.settlement || '',
         branch: first?.nova_poshta_branch || '',
-        comment,
+        comment: first?.comment || '',
         lines,
       }
     })
@@ -134,9 +132,11 @@ export default function AdminOrders() {
     return list
   }, [rows, q, sortByEmailAsc])
 
-  const totalPayout = useMemo(() =>
-    groups.reduce((s, g) => s + (g.status === 'paid' ? 0 : g.payout), 0),
-  [groups])
+  // ПІДСУМОК по вибірці: використовуємо ЕФЕКТИВНУ суму
+  const totalPayout = useMemo(
+    () => groups.reduce((s, g) => s + g.payout, 0),
+    [groups]
+  )
 
   async function updateStatus(order_no, newStatus) {
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
@@ -302,7 +302,7 @@ export default function AdminOrders() {
                   if (g.status === 'delivered') perLinePayout = lineBase
                   else if (g.status === 'refused' || g.status === 'canceled')
                     perLinePayout = hasOverride ? lineBase : 0
-                  else if (g.status === 'paid') perLinePayout = lineBase
+                  else if (g.status === 'paid') perLinePayout = 0
                   else perLinePayout = 0
 
                   return (
@@ -323,18 +323,18 @@ export default function AdminOrders() {
                 })}
               </div>
 
-              {/* Футер: показ + редагування підсумку */}
+              {/* Футер: показуємо ЗАВЖДИ базову (display_total) */}
               <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="text-right sm:text-left">
                   <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
-                  <span className="price text-[18px] font-semibold">{g.payout.toFixed(2)} ₴</span>
+                  <span className="price text-[18px] font-semibold">{g.display_total.toFixed(2)} ₴</span>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <input
                     className="input input-xs w-[160px]"
                     type="text"
-                    defaultValue={Number.isFinite(g.payout) ? g.payout.toFixed(2) : ''}
+                    defaultValue={Number.isFinite(g.display_total) ? g.display_total.toFixed(2) : ''}
                     placeholder="Нова сума… (можна з мінусом)"
                     id={`ovr-${g.order_no}`}
                   />

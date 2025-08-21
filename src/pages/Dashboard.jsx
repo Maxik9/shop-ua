@@ -36,10 +36,9 @@ export default function Dashboard() {
         const uid = s?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
-        // Підсумок зверху (RPC)
+        // Загальний підсумок зверху (RPC — рахує тільки дозволені статуси)
         try {
-          const { data: total, error: tErr } = await supabase.rpc('get_total_payout', { p_user: uid })
-          if (tErr) throw tErr
+          const { data: total } = await supabase.rpc('get_total_payout', { p_user: uid })
           if (mounted) setTotalTop(Number(total || 0))
         } catch (_) {}
 
@@ -66,7 +65,7 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Групування + правильний розрахунок (override > bank)
+  // Групування
   const grouped = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -92,15 +91,18 @@ export default function Dashboard() {
                                : (unitSale - unitDrop) * qty
         if (!hasOverride && payment === 'bank') line = 0
         if (hasOverride) hasAnyOverride = true
-
         baseSum += line
       }
 
+      // ефективна сума для підсумків
       let payout = 0
       if (status === 'delivered') payout = baseSum
       else if (status === 'refused' || status === 'canceled') payout = hasAnyOverride ? baseSum : 0
-      else if (status === 'paid') payout = baseSum
+      else if (status === 'paid') payout = 0
       else payout = 0
+
+      // показ на картці завжди
+      const display_total = baseSum
 
       return {
         order_no,
@@ -113,14 +115,15 @@ export default function Dashboard() {
         comment: first?.comment || '',
         status,
         payment,
-        payout,
+        display_total, // показуємо завжди
+        payout,        // у підсумках
         lines,
       }
     })
     return list.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
   }, [rows])
 
-  // Пошук по одержувачу/телефону
+  // Фільтр по ПІБ/телефону
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase()
     if (!t) return grouped
@@ -130,9 +133,9 @@ export default function Dashboard() {
     )
   }, [grouped, q])
 
-  // Підсумок по вибірці (без paid)
+  // ПІДСУМОК по видимій вибірці — беремо ЕФЕКТИВНУ суму
   const totalPayoutVisible = useMemo(
-    () => filtered.reduce((s, g) => s + (g.status === 'paid' ? 0 : g.payout), 0),
+    () => filtered.reduce((s, g) => s + g.payout, 0),
     [filtered]
   )
 
@@ -214,13 +217,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {order.comment && (
-                <div className="text-sm mb-3">
-                  <span className="text-muted">Коментар:&nbsp;</span>
-                  <span className="font-medium whitespace-pre-wrap">{order.comment}</span>
-                </div>
-              )}
-
               <div className="rounded-xl border border-slate-100">
                 {order.lines.map((r, idx) => {
                   const p = r.product || {}
@@ -237,7 +233,7 @@ export default function Dashboard() {
                   if (order.status === 'delivered') perLinePayout = lineBase
                   else if (order.status === 'refused' || order.status === 'canceled')
                     perLinePayout = hasOverride ? lineBase : 0
-                  else if (order.status === 'paid') perLinePayout = lineBase
+                  else if (order.status === 'paid') perLinePayout = 0
                   else perLinePayout = 0
 
                   return (
@@ -262,9 +258,10 @@ export default function Dashboard() {
                 })}
               </div>
 
+              {/* Показуємо ЗАВЖДИ */}
               <div className="mt-3 text-right">
                 <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
-                <span className="price text-[18px] font-semibold">{order.payout.toFixed(2)} ₴</span>
+                <span className="price text-[18px] font-semibold">{order.display_total.toFixed(2)} ₴</span>
               </div>
             </div>
           </div>
