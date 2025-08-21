@@ -4,12 +4,13 @@ import { supabase } from '../supabaseClient'
 import { Link } from 'react-router-dom'
 
 const STATUS_OPTIONS = [
-  { v: 'pending',    t: 'Нове' },
+  { v: 'new',        t: 'Нове' },
   { v: 'processing', t: 'В обробці' },
-  { v: 'ordered',    t: 'Замовлено' },
-  { v: 'shipped',    t: 'Відправлено' },
-  { v: 'delivered',  t: 'Доставлено' },
   { v: 'canceled',   t: 'Скасовано' },
+  { v: 'shipped',    t: 'Відправлено' },
+  { v: 'delivered',  t: 'Отримано' },
+  { v: 'refused',    t: 'Відмова' },
+  { v: 'paid',       t: 'Виплачено' },
 ]
 const STATUS_UA = Object.fromEntries(STATUS_OPTIONS.map(o => [o.v, o.t]))
 const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
@@ -33,13 +34,14 @@ export default function AdminOrders() {
     ;(async () => {
       setLoading(true); setError('')
       try {
-        // Доступ лише адміну (RLS)
+        // Завантажуємо лінії замовлень + потрібні поля для обчислень
         const { data, error } = await supabase
           .from('orders')
           .select(`
             id, order_no, created_at, status, qty, my_price, ttn, payment_method,
             recipient_name, recipient_phone, settlement, nova_poshta_branch,
             comment,
+            payout_override,       -- ДОПОВНЕНО: ручна сума по рядку
             product:products ( id, name, image_url, price_dropship ),
             user:profiles ( user_id, email, full_name )
           `)
@@ -56,7 +58,7 @@ export default function AdminOrders() {
     return () => { mounted = false }
   }, [])
 
-  // Групування по order_no
+  // Групування по order_no з логікою виплат
   const groups = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -64,28 +66,65 @@ export default function AdminOrders() {
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(r)
     }
+
     let list = Array.from(map.entries()).map(([order_no, lines]) => {
       const first = lines[0]
+      // якщо статуси різні — показуємо «В обробці» як агрегований стан
       const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
       const payment = first?.payment_method || 'cod'
-      const payout = payment === 'bank'
-        ? 0
-        : lines.reduce((s, r) => {
-            const p = r.product || {}
-            const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-            const unitDrop = Number(p.price_dropship ?? 0)
-            return s + (unitSale - unitDrop) * Number(r.qty || 1)
-          }, 0)
+
+      // базова сума виплати по замовленню (без урахування статусу):
+      // - якщо payment === 'bank' → 0
+      // - інакше: сумуємо по рядках:
+      //     якщо payout_override заданий → беремо його (вважаємо, що це сума за рядок)
+      //     інакше (my_price - price_dropship) * qty
+      let baseSum = 0
+      let hasAnyOverride = false
+      for (const r of lines) {
+        const p = r.product || {}
+        const qty = Number(r.qty || 1)
+        const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
+        const unitDrop = Number(p.price_dropship ?? 0)
+        let line = 0
+        if (r.payout_override !== null && r.payout_override !== undefined) {
+          hasAnyOverride = true
+          line = Number(r.payout_override || 0)
+        } else {
+          line = (unitSale - unitDrop) * qty
+        }
+        baseSum += line
+      }
+      // враховуємо спосіб оплати
+      if (payment === 'bank') baseSum = 0
+
+      // тепер застосовуємо бізнес-правило по статусу:
+      // delivered → беремо baseSum
+      // refused   → якщо є override на будь-якому рядку — беремо baseSum (може бути від’ємним), інакше 0
+      // canceled  → якщо є override → baseSum, інакше 0
+      // paid      → Нуль до загальної суми (внизу ми ще раз відфільтруємо), але для відображення можна показати baseSum
+      // new/processing/shipped → 0
+      let payout = 0
+      if (status === 'delivered') {
+        payout = baseSum
+      } else if (status === 'refused' || status === 'canceled') {
+        payout = hasAnyOverride ? baseSum : 0
+      } else if (status === 'paid') {
+        payout = baseSum // відобразимо як довідкове, але нижче не додамо у загальний підсумок
+      } else {
+        payout = 0
+      }
+
       const email = first?.user?.email || ''
       const full_name = first?.user?.full_name || ''
       const comment = first?.comment || ''
+
       return {
         order_no,
         created_at: first?.created_at,
         ttn: first?.ttn || '',
         status,
         payment,
-        payout,
+        payout,                 // Разом до виплати по замовленню (з урахуванням правил)
         email,
         full_name,
         recipient_name: first?.recipient_name,
@@ -109,7 +148,7 @@ export default function AdminOrders() {
       )
     }
 
-    // Сортування за email (коли шукаємо по email)
+    // Сортування за email (коли шукаємо по email), інакше — за датою
     list.sort((a,b) => {
       if (q.includes('@')) {
         const cmp = (a.email||'').localeCompare((b.email||''))
@@ -121,7 +160,10 @@ export default function AdminOrders() {
     return list
   }, [rows, q, sortByEmailAsc])
 
-  const totalPayout = useMemo(() => groups.reduce((s, g) => s + g.payout, 0), [groups])
+  // Загальна сума до виплати по вибірці
+  const totalPayout = useMemo(() =>
+    groups.reduce((s, g) => s + (g.status === 'paid' ? 0 : g.payout), 0),
+  [groups])
 
   // Масова зміна статусу для order_no
   async function updateStatus(order_no, newStatus) {
@@ -251,10 +293,33 @@ export default function AdminOrders() {
               <div className="rounded-xl border border-slate-100">
                 {g.lines.map((r, idx) => {
                   const p = r.product || {}
+                  const qty = Number(r.qty || 1)
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
-                  const qty = Number(r.qty || 1)
-                  const perLinePayout = g.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
+
+                  // базова виплата по рядку (без статусу і способу оплати)
+                  let lineBase = 0
+                  if (r.payout_override !== null && r.payout_override !== undefined) {
+                    lineBase = Number(r.payout_override || 0)
+                  } else {
+                    lineBase = (unitSale - unitDrop) * qty
+                  }
+
+                  // якщо оплата "bank" — по твоїй старій логіці виплата 0
+                  if (g.payment === 'bank') lineBase = 0
+
+                  // показуємо «До виплати» по рядку згідно статусу замовлення
+                  let perLinePayout = 0
+                  if (g.status === 'delivered') {
+                    perLinePayout = lineBase
+                  } else if (g.status === 'refused' || g.status === 'canceled') {
+                    perLinePayout = (r.payout_override !== null && r.payout_override !== undefined) ? lineBase : 0
+                  } else if (g.status === 'paid') {
+                    perLinePayout = lineBase // довідково
+                  } else {
+                    perLinePayout = 0
+                  }
+
                   return (
                     <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
@@ -287,7 +352,9 @@ export default function AdminOrders() {
         <div className="mt-4 text-right">
           <div className="text-[18px]">
             Всього до виплати по вибірці:&nbsp;
-            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
+            <span className="price text-[22px]">
+              {totalPayout.toFixed(2)} ₴
+            </span>
           </div>
         </div>
       )}
