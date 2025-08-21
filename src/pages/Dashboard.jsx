@@ -4,12 +4,13 @@ import { supabase } from '../supabaseClient'
 import { Link } from 'react-router-dom'
 
 const STATUS_UA = {
-  pending: 'Нове',
+  new: 'Нове',
   processing: 'В обробці',
-  ordered: 'Замовлено',
-  shipped: 'Відправлено',
-  delivered: 'Доставлено',
   canceled: 'Скасовано',
+  shipped: 'Відправлено',
+  delivered: 'Отримано',
+  refused: 'Відмова',
+  paid: 'Виплачено',
 }
 const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
 
@@ -34,6 +35,9 @@ export default function Dashboard() {
   const [error, setError] = useState('')
   const [q, setQ] = useState('') // пошук: ПІБ/телефон одержувача
 
+  // Підсумок зверху через RPC
+  const [totalTop, setTotalTop] = useState(0)
+
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -43,12 +47,23 @@ export default function Dashboard() {
         const uid = s?.session?.user?.id
         if (!uid) throw new Error('Необхідна авторизація')
 
+        // Загальний підсумок «Разом до виплати» (виключає paid)
+        try {
+          const { data: total, error: tErr } = await supabase.rpc('get_total_payout', { p_user: uid })
+          if (tErr) throw tErr
+          if (mounted) setTotalTop(Number(total || 0))
+        } catch (e) {
+          // не блокуємо сторінку, просто залишимо 0
+          console.warn('get_total_payout error:', e?.message || e)
+        }
+
+        // Список замовлень (рядки)
         const { data, error } = await supabase
           .from('orders')
           .select(`
             id, order_no, created_at, status, qty, my_price, ttn, payment_method,
             recipient_name, recipient_phone, settlement, nova_poshta_branch,
-            comment,
+            comment, payout_override,
             product:products ( id, name, image_url, price_dropship )
           `)
           .eq('user_id', uid)
@@ -65,7 +80,7 @@ export default function Dashboard() {
     return () => { mounted = false }
   }, [])
 
-  // Групування рядків по одному замовленню (order_no)
+  // Групування рядків по одному замовленню (order_no) + правильна логіка виплат
   const grouped = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -77,15 +92,40 @@ export default function Dashboard() {
       const first = lines[0]
       const status = lines.every(l => l.status === first.status) ? first.status : 'processing'
       const payment = first?.payment_method || 'cod'
-      const payout =
-        payment === 'bank'
-          ? 0
-          : lines.reduce((s, r) => {
-              const p = r.product || {}
-              const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
-              const unitDrop = Number(p.price_dropship ?? 0)
-              return s + (unitSale - unitDrop) * Number(r.qty || 1)
-            }, 0)
+
+      // базова сума по рядках: override якщо є, інакше (продаж - дроп) * qty
+      // якщо bank — 0
+      let baseSum = 0
+      let hasAnyOverride = false
+      for (const r of lines) {
+        const p = r.product || {}
+        const qty = Number(r.qty || 1)
+        const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
+        const unitDrop = Number(p.price_dropship ?? 0)
+
+        let lineBase = 0
+        if (r.payout_override !== null && r.payout_override !== undefined) {
+          hasAnyOverride = true
+          lineBase = Number(r.payout_override || 0)
+        } else {
+          lineBase = (unitSale - unitDrop) * qty
+        }
+        baseSum += lineBase
+      }
+      if (payment === 'bank') baseSum = 0
+
+      // підсумок за правилами статусу
+      let payout = 0
+      if (status === 'delivered') {
+        payout = baseSum
+      } else if (status === 'refused' || status === 'canceled') {
+        payout = hasAnyOverride ? baseSum : 0
+      } else if (status === 'paid') {
+        payout = baseSum // показати довідково, але в загальний знизу не додамо
+      } else {
+        payout = 0
+      }
+
       return {
         order_no,
         created_at: first?.created_at,
@@ -115,13 +155,22 @@ export default function Dashboard() {
     )
   }, [grouped, q])
 
-  const totalPayout = useMemo(
-    () => filtered.reduce((s, g) => s + g.payout, 0),
+  // Підсумок унизу по видимій вибірці (виключає paid)
+  const totalPayoutVisible = useMemo(
+    () => filtered.reduce((s, g) => s + (g.status === 'paid' ? 0 : g.payout), 0),
     [filtered]
   )
 
   return (
     <div className="max-w-6xl mx-auto px-3 py-4 sm:py-6">
+      {/* Загальний підсумок зверху */}
+      <div className="card mb-4">
+        <div className="card-body flex items-center justify-between">
+          <div className="font-medium">Разом до виплати</div>
+          <div className="text-2xl font-bold">{totalTop.toFixed(2)} ₴</div>
+        </div>
+      </div>
+
       {/* Шапка + пошук */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <h1 className="h1">Мої замовлення</h1>
@@ -212,8 +261,27 @@ export default function Dashboard() {
                   const unitSale = Number(r.my_price ?? p.price_dropship ?? 0)
                   const unitDrop = Number(p.price_dropship ?? 0)
                   const qty = Number(r.qty || 1)
-                  const perLinePayout =
-                    order.payment === 'bank' ? 0 : (unitSale - unitDrop) * qty
+
+                  // line base з урахуванням override
+                  let lineBase = 0
+                  if (r.payout_override !== null && r.payout_override !== undefined) {
+                    lineBase = Number(r.payout_override || 0)
+                  } else {
+                    lineBase = (unitSale - unitDrop) * qty
+                  }
+                  if (order.payment === 'bank') lineBase = 0
+
+                  // Виплата по рядку за статусом
+                  let perLinePayout = 0
+                  if (order.status === 'delivered') {
+                    perLinePayout = lineBase
+                  } else if (order.status === 'refused' || order.status === 'canceled') {
+                    perLinePayout = (r.payout_override !== null && r.payout_override !== undefined) ? lineBase : 0
+                  } else if (order.status === 'paid') {
+                    perLinePayout = lineBase
+                  } else {
+                    perLinePayout = 0
+                  }
 
                   return (
                     <div
@@ -274,7 +342,7 @@ export default function Dashboard() {
         <div className="mt-4 text-right">
           <div className="text-[18px]">
             Всього до виплати по вибірці:&nbsp;
-            <span className="price text-[22px]">{totalPayout.toFixed(2)} ₴</span>
+            <span className="price text-[22px]">{totalPayoutVisible.toFixed(2)} ₴</span>
           </div>
         </div>
       )}

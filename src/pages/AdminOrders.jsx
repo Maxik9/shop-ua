@@ -12,7 +12,6 @@ const STATUS_OPTIONS = [
   { v: 'refused',    t: 'Відмова' },
   { v: 'paid',       t: 'Виплачено' },
 ]
-const STATUS_UA = Object.fromEntries(STATUS_OPTIONS.map(o => [o.v, o.t]))
 const PAY_UA = { cod: 'Післяплата', bank: 'Оплата по реквізитам' }
 
 function fmtDate(ts) {
@@ -29,36 +28,33 @@ export default function AdminOrders() {
   const [q, setQ] = useState('')
   const [sortByEmailAsc, setSortByEmailAsc] = useState(true)
 
-  useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      setLoading(true); setError('')
-      try {
-        // ВАЖЛИВО: без коментарів усередині .select(...)
-        const { data, error } = await supabase
-          .from('orders')
-          .select(`
-            id, order_no, created_at, status, qty, my_price, ttn, payment_method,
-            recipient_name, recipient_phone, settlement, nova_poshta_branch,
-            comment,
-            payout_override,
-            product:products ( id, name, image_url, price_dropship ),
-            user:profiles ( user_id, email, full_name )
-          `)
-          .order('created_at', { ascending: false })
+  async function load() {
+    setLoading(true); setError('')
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          id, order_no, created_at, status, qty, my_price, ttn, payment_method,
+          recipient_name, recipient_phone, settlement, nova_poshta_branch,
+          comment,
+          payout_override,
+          product:products ( id, name, image_url, price_dropship ),
+          user:profiles ( user_id, email, full_name )
+        `)
+        .order('created_at', { ascending: false })
 
-        if (error) throw error
-        if (mounted) setRows(data || [])
-      } catch (e) {
-        if (mounted) setError(e.message || 'Помилка завантаження')
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    })()
-    return () => { mounted = false }
-  }, [])
+      if (error) throw error
+      setRows(data || [])
+    } catch (e) {
+      setError(e.message || 'Помилка завантаження')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  // Групування по order_no з логікою виплат
+  useEffect(() => { load() }, [])
+
+  // Групування по order_no + розрахунок виплати
   const groups = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -96,7 +92,7 @@ export default function AdminOrders() {
       } else if (status === 'refused' || status === 'canceled') {
         payout = hasAnyOverride ? baseSum : 0
       } else if (status === 'paid') {
-        payout = baseSum // відображаємо довідково; нижче не додаємо у підсумок
+        payout = baseSum // для відображення; в загальний підсумок нижче не додамо
       } else {
         payout = 0
       }
@@ -151,12 +147,47 @@ export default function AdminOrders() {
 
   async function updateStatus(order_no, newStatus) {
     const { error } = await supabase.from('orders').update({ status: newStatus }).eq('order_no', order_no)
-    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, status: newStatus } : r))
+    if (!error) await load()
   }
 
   async function updateTTN(order_no, newTTN) {
     const { error } = await supabase.from('orders').update({ ttn: newTTN }).eq('order_no', order_no)
-    if (!error) setRows(prev => prev.map(r => r.order_no === order_no ? { ...r, ttn: newTTN } : r))
+    if (!error) await load()
+  }
+
+  // === ВАЖЛИВО: oверрайд «РАЗОМ ДО ВИПЛАТИ» по замовленню ===
+  async function setOrderTotalOverride(order_no, total) {
+    const lines = rows.filter(r => (r.order_no || r.id) === order_no)
+    if (!lines.length) return
+    const firstId = lines[0].id
+    const restIds = lines.slice(1).map(l => l.id)
+
+    // 1) на перший рядок ставимо всю суму
+    const { error: e1 } = await supabase
+      .from('orders')
+      .update({ payout_override: Number(total) })
+      .eq('id', firstId)
+    if (e1) return alert('Помилка збереження: ' + e1.message)
+
+    // 2) на всі інші — 0
+    if (restIds.length) {
+      const { error: e2 } = await supabase
+        .from('orders')
+        .update({ payout_override: 0 })
+        .in('id', restIds)
+      if (e2) return alert('Помилка збереження: ' + e2.message)
+    }
+
+    await load()
+  }
+
+  async function clearOrderOverride(order_no) {
+    const { error } = await supabase
+      .from('orders')
+      .update({ payout_override: null })
+      .eq('order_no', order_no)
+    if (error) return alert('Помилка очищення: ' + error.message)
+    await load()
   }
 
   return (
@@ -196,7 +227,7 @@ export default function AdminOrders() {
         {groups.map(g => (
           <div key={g.order_no} className="card">
             <div className="p-4 space-y-3">
-              {/* Шапка замовлення */}
+              {/* Шапка */}
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="text-sm text-muted">№</div>
@@ -211,7 +242,6 @@ export default function AdminOrders() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {/* Статус */}
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted">Статус:</span>
                     <select
@@ -225,12 +255,10 @@ export default function AdminOrders() {
                     </select>
                   </div>
 
-                  {/* Оплата */}
                   <span className="px-2 py-1 rounded-lg text-sm bg-indigo-50 text-indigo-700">
                     {PAY_UA[g.payment] || g.payment}
                   </span>
 
-                  {/* ТТН */}
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted">ТТН:</span>
                     <input
@@ -243,7 +271,7 @@ export default function AdminOrders() {
                 </div>
               </div>
 
-              {/* Одержувач/адреса */}
+              {/* Одержувач */}
               <div className="text-sm flex flex-col md:flex-row md:flex-wrap gap-y-1 gap-x-3">
                 <div>
                   <span className="text-muted">Одержувач:&nbsp;</span>
@@ -263,7 +291,7 @@ export default function AdminOrders() {
                 </div>
               </div>
 
-              {/* Коментар (якщо є) */}
+              {/* Коментар */}
               {g.comment && (
                 <div className="text-sm">
                   <span className="text-muted">Коментар:&nbsp;</span>
@@ -271,7 +299,7 @@ export default function AdminOrders() {
                 </div>
               )}
 
-              {/* Лінії (товари) */}
+              {/* Рядки */}
               <div className="rounded-xl border border-slate-100">
                 {g.lines.map((r, idx) => {
                   const p = r.product || {}
@@ -317,10 +345,40 @@ export default function AdminOrders() {
                 })}
               </div>
 
-              {/* Разом по замовленню */}
-              <div className="mt-3 text-right">
-                <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
-                <span className="price text-[18px] font-semibold">{g.payout.toFixed(2)} ₴</span>
+              {/* Футер замовлення: показ + редагування підсумку */}
+              <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="text-right sm:text-left">
+                  <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
+                  <span className="price text-[18px] font-semibold">{g.payout.toFixed(2)} ₴</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    className="input input-xs w-[160px]"
+                    type="number"
+                    step="0.01"
+                    defaultValue={Number.isFinite(g.payout) ? g.payout.toFixed(2) : ''}
+                    placeholder="Нова сума…"
+                    id={`ovr-${g.order_no}`}
+                  />
+                  <button
+                    className="btn-primary btn-xs"
+                    onClick={() => {
+                      const el = document.getElementById(`ovr-${g.order_no}`)
+                      const val = el?.value?.trim()
+                      if (val === '' || isNaN(Number(val))) return alert('Введіть число')
+                      setOrderTotalOverride(g.order_no, Number(val))
+                    }}
+                  >
+                    Зберегти
+                  </button>
+                  <button
+                    className="btn-outline btn-xs"
+                    onClick={() => clearOrderOverride(g.order_no)}
+                  >
+                    Очистити
+                  </button>
+                </div>
               </div>
             </div>
           </div>
