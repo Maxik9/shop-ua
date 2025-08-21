@@ -3,7 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 
-// Шапка/навігація та футер
+// Шапка та футер
 import NavBar from './components/NavBar'
 import Footer from './components/Footer'
 
@@ -31,13 +31,9 @@ import AdminCategories from './pages/AdminCategories'
 import AdminCategoryEditor from './pages/AdminCategoryEditor'
 import AdminImport from './pages/AdminImport'
 
-// Роути-декоратори
-import PrivateRoute from './components/PrivateRoute'
-import AdminRoute from './components/AdminRoute'
-
 export default function App() {
-  // (необовʼязково) тримаємо сесію, щоб при оновленні не блимало
   const [session, setSession] = useState(null)
+
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -68,93 +64,23 @@ export default function App() {
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/search" element={<Search />} />
 
-          {/* Відновлення пароля (обидва шляхи на всяк випадок) */}
+          {/* Відновлення пароля */}
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/reset-password" element={<ResetPassword />} />
 
-          {/* Кабінет (приватний) */}
-          <Route
-            path="/dashboard"
-            element={
-              <PrivateRoute>
-                <Dashboard />
-              </PrivateRoute>
-            }
-          />
+          {/* Кабінет користувача */}
+          <Route path="/dashboard" element={<Dashboard />} />
 
           {/* Адмінка */}
-          <Route
-            path="/admin"
-            element={
-              <AdminRoute>
-                <Admin />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/orders"
-            element={
-              <AdminRoute>
-                <AdminOrders />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/products"
-            element={
-              <AdminRoute>
-                <AdminProducts />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/products/new"
-            element={
-              <AdminRoute>
-                <AdminProductEditor />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/products/:id"
-            element={
-              <AdminRoute>
-                <AdminProductEditor />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/categories"
-            element={
-              <AdminRoute>
-                <AdminCategories />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/categories/new"
-            element={
-              <AdminRoute>
-                <AdminCategoryEditor />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/categories/:id"
-            element={
-              <AdminRoute>
-                <AdminCategoryEditor />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/import"
-            element={
-              <AdminRoute>
-                <AdminImport />
-              </AdminRoute>
-            }
-          />
+          <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/orders" element={<AdminOrders />} />
+          <Route path="/admin/products" element={<AdminProducts />} />
+          <Route path="/admin/products/new" element={<AdminProductEditor />} />
+          <Route path="/admin/products/:id" element={<AdminProductEditor />} />
+          <Route path="/admin/categories" element={<AdminCategories />} />
+          <Route path="/admin/categories/new" element={<AdminCategoryEditor />} />
+          <Route path="/admin/categories/:id" element={<AdminCategoryEditor />} />
+          <Route path="/admin/import" element={<AdminImport />} />
 
           {/* 404 */}
           <Route path="*" element={<NotFound />} />
