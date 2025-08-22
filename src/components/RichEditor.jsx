@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * RichEditor (без стрибка скролу/курсора)
- * - contentEditable неконтрольований (не перерендерюємо на кожний ввод)
- * - sticky toolbar, внутрішній скрол, paste-cleanup
  */
 export default function RichEditor({
   value = "",
@@ -14,9 +12,8 @@ export default function RichEditor({
 }) {
   const editorRef = useRef(null);
   const [showSource, setShowSource] = useState(false);
-  const [html, setHtml] = useState(value || ""); // використовується для textarea / синхронізації
+  const [html, setHtml] = useState(value || "");
 
-  // При зовнішній зміні value — оновлюємо і div (коли НЕ в режимі «Джерело»)
   useEffect(() => {
     setHtml(value || "");
     if (!showSource && editorRef.current) {
@@ -26,17 +23,16 @@ export default function RichEditor({
     }
   }, [value, showSource]);
 
-  // Ініціалізація контенту при монтуванні
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.innerHTML = html || "";
     }
-  }, []); // один раз
+  }, []); 
 
   const emit = () => {
     const cur = editorRef.current?.innerHTML || "";
-    setHtml(cur);         // збережемо для «Джерело»
-    onChange(cur);        // віддамо наверх
+    setHtml(cur);
+    onChange(cur);
   };
 
   const exec = (cmd, val = null) => {
@@ -66,7 +62,6 @@ export default function RichEditor({
   const onInput = () => emit();
 
   const onPaste = () => {
-    // Легке прибирання «ширин», щоб контент не роздувався
     setTimeout(() => {
       const el = editorRef.current;
       if (!el) return;
@@ -83,11 +78,9 @@ export default function RichEditor({
 
   const toggleSource = () => {
     if (!showSource) {
-      // Переходимо в «Джерело»: забираємо поточний HTML з div
       setHtml(editorRef.current?.innerHTML || "");
       setShowSource(true);
     } else {
-      // Повертаємось з «Джерело»: заливаємо HTML назад у div
       setShowSource(false);
       requestAnimationFrame(() => {
         if (editorRef.current) {
@@ -141,8 +134,8 @@ export default function RichEditor({
           border: 1px solid rgba(0,0,0,.06);
           min-height: var(--re-minh);
           max-height: var(--re-maxh);
-          overflow: auto;                /* власний скрол */
-          overflow-anchor: none;         /* не «підстрибуємо» */
+          overflow: auto;
+          overflow-anchor: none;
           word-break: break-word;
           overflow-wrap: anywhere;
           background: #fff;
@@ -151,4 +144,84 @@ export default function RichEditor({
           content: attr(data-placeholder);
           color: #94a3b8;
         }
-        .rich-editor .editor-surfac
+        .rich-editor .editor-surface * { max-width: 100%; }
+        .rich-editor .editor-surface img { max-width: 100%; height: auto; display: inline-block; }
+        .rich-editor .editor-surface table { width: 100%; table-layout: auto; border-collapse: collapse; }
+        .rich-editor .editor-surface td, .rich-editor .editor-surface th {
+          border: 1px solid rgba(0,0,0,.08); padding: 6px;
+        }
+        .rich-editor .editor-surface > :first-child { margin-top: 0 !important; }
+        .rich-editor .editor-surface > :last-child  { margin-bottom: 0 !important; }
+
+        .rich-editor .source-area {
+          width: 100%;
+          min-height: var(--re-minh);
+          max-height: var(--re-maxh);
+          overflow: auto;
+          box-sizing: border-box;
+          padding: 12px 14px;
+          border-radius: 8px;
+          border: 1px solid rgba(0,0,0,.06);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          line-height: 1.5;
+          white-space: pre-wrap;
+          background: #fff;
+        }
+
+        .rich-editor .divider {
+          width: 1px; height: 24px; background: #e5e7eb; margin: 0 6px;
+        }
+      `}</style>
+
+      {/* toolbar */}
+      <div className="toolbar">
+        <button className="btn-ghost" onClick={() => exec("bold")}>B</button>
+        <button className="btn-ghost" onClick={() => exec("italic")}><i>І</i></button>
+        <button className="btn-ghost" onClick={() => exec("underline")}><u>U</u></button>
+        <button className="btn-ghost" onClick={() => exec("strikeThrough")}><s>S</s></button>
+        <span className="divider" />
+        <button className="btn-ghost" onClick={() => exec("insertUnorderedList")}>• Список</button>
+        <button className="btn-ghost" onClick={() => exec("insertOrderedList")}>1. Список</button>
+        <span className="divider" />
+        <button className="btn-ghost" onClick={() => exec("formatBlock", "H2")}>H2</button>
+        <button className="btn-ghost" onClick={() => exec("formatBlock", "H3")}>H3</button>
+        <button className="btn-ghost" onClick={() => exec("formatBlock", "P")}>P</button>
+        <span className="divider" />
+        <button className="btn-ghost" onClick={insertLink}>🔗</button>
+        <button className="btn-ghost" onClick={insertImage}>🖼️</button>
+        <span className="divider" />
+        <button className="btn-ghost" onClick={() => exec("justifyLeft")}>⟸</button>
+        <button className="btn-ghost" onClick={() => exec("justifyCenter")}>≡</button>
+        <button className="btn-ghost" onClick={() => exec("justifyRight")}>⟹</button>
+        <span className="divider" />
+        <button className="btn-ghost" onClick={() => exec("undo")}>↶</button>
+        <button className="btn-ghost" onClick={() => exec("redo")}>↷</button>
+        <button className="btn-ghost" onClick={() => exec("removeFormat")}>🧹</button>
+        <button className="btn-ghost" onClick={clearAll}>✖</button>
+        <span className="divider" />
+        <button className="btn-ghost" onClick={toggleSource}>Джерело</button>
+      </div>
+
+      <div className="editor-wrap">
+        {showSource ? (
+          <textarea
+            className="source-area"
+            value={html}
+            onChange={(e) => setHtml(e.target.value)}
+            onBlur={() => onChange(html)}
+          />
+        ) : (
+          <div
+            ref={editorRef}
+            className="editor-surface"
+            contentEditable
+            suppressContentEditableWarning
+            data-placeholder={placeholder}
+            onInput={onInput}
+            onPaste={onPaste}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
