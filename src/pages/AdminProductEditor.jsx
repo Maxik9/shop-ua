@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import HtmlContent from '../components/HtmlContent'
+import RichEditor from '../components/RichEditor'  // ← додано
 
 function uid() { return Date.now() + '-' + Math.random().toString(36).slice(2, 8) }
 async function uploadToBucket(file, folder='products') {
@@ -49,10 +50,10 @@ export default function AdminProductEditor() {
   const [categories, setCategories] = useState([])
   const [categoryId, setCategoryId] = useState('') // keep as string (UUID or text)
 
-  // desc toggle
-  const [descMode, setDescMode] = useState('html')
+  // desc
+  const [descMode] = useState('html')   // ← лишили, завжди html (щоб мінімально втручатись)
   const [descHtml, setDescHtml] = useState('')
-  const [descText, setDescText] = useState('')
+  const [descText, setDescText] = useState('') // залишається, але не використовується для збереження
 
   // images (first === main)
   const [gallery, setGallery] = useState([])
@@ -110,15 +111,15 @@ export default function AdminProductEditor() {
   async function handleSave(){
     try{
       setSaving(true); setMsg(''); setErr('')
-      const descToSave = descMode==='html' ? descHtml : textToHtml(descText)
+      // ⭐️ тепер завжди зберігаємо HTML з редактора
+      const descToSave = descHtml || ''
       const row = {
         sku: sku.trim(),
         name: name.trim(),
         price_dropship: Number(price) || 0,
         in_stock: !!inStock,
-        // ВАЖЛИВО: category_id як РЯДОК (UUID/текст), без Number()
         category_id: categoryId ? categoryId : null,
-        description: descToSave || '',
+        description: descToSave,
         image_url: gallery[0] || null,
         gallery_json: gallery.length ? gallery : null,
       }
@@ -181,17 +182,9 @@ export default function AdminProductEditor() {
               </div>
 
               <div className="mt-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <label className="label m-0">Опис</label>
-                  <div className="inline-flex rounded border overflow-hidden">
-                    <button className={`px-3 py-1 ${descMode==='html'?'bg-slate-200':''}`} onClick={()=>setDescMode('html')}>HTML</button>
-                    <button className={`px-3 py-1 ${descMode==='text'?'bg-slate-200':''}`} onClick={()=>setDescMode('text')}>Звичайний</button>
-                  </div>
-                </div>
-                {descMode==='html'
-                  ? <textarea className="input min-h-[220px] font-mono" placeholder="HTML опис…" value={descHtml} onChange={e=>setDescHtml(e.target.value)} />
-                  : <textarea className="input min-h-[220px]" placeholder="Звичайний текст…" value={descText} onChange={e=>setDescText(e.target.value)} />
-                }
+                <label className="label">Опис</label>
+                {/* 🔽 Замість двох textarea — компактний редактор із кнопкою "Джерело" */}
+                <RichEditor value={descHtml} onChange={setDescHtml} />
               </div>
             </div>
           </div>
@@ -230,7 +223,7 @@ export default function AdminProductEditor() {
               <div className="mt-6">
                 <div className="text-sm text-slate-600 mb-2">Превʼю опису (як на сайті)</div>
                 <div className="card"><div className="card-body overflow-x-hidden">
-                  <HtmlContent html={descMode==='html' ? descHtml : textToHtml(descText)} />
+                  <HtmlContent html={descHtml || textToHtml(descText)} />
                 </div></div>
               </div>
             </div>
