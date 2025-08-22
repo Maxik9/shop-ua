@@ -5,6 +5,11 @@ import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
 import HtmlContent from '../components/HtmlContent'
 
+// [SIZE] parse helper
+function parseSizes(str){
+  return (str||'').split(/[|,;]+/g).map(s=>s.trim()).filter(Boolean);
+}
+
 export default function Product() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -15,6 +20,9 @@ export default function Product() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [imgIndex, setImgIndex] = useState(0)
+  // [SIZE]
+  const [sizes, setSizes] = useState([])
+  const [size, setSize] = useState('')
 
   // swipe для великого фото
   const touchStartX = useRef(null)
@@ -28,9 +36,13 @@ export default function Product() {
     overflowX: 'auto',
     overscrollBehaviorX: 'contain',
     WebkitOverflowScrolling: 'touch',
-    padding: '0 8px 6px',
-    maxWidth: '100%',
-    contain: 'inline-size',
+    scrollbarWidth: 'thin',
+  }
+
+  const backToCategory = () => {
+    const from = location.state?.from
+    if (from) navigate(from)
+    else history.back()
   }
 
   useEffect(() => {
@@ -40,18 +52,17 @@ export default function Product() {
       try {
         const { data, error } = await supabase
           .from('products')
-          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock, category_id')
+          .select('*, gallery_json')
           .eq('id', id)
           .single()
-
-        if (error) setError(error.message || 'Помилка завантаження')
+        if (error) throw error
         else if (data) {
           const g = Array.isArray(data.gallery_json) ? data.gallery_json : []
           const photos = Array.from(new Set([data.image_url, ...g].filter(Boolean)))
-          if (alive) setProduct({ ...data, _photos: photos })
+          if (alive){ setProduct({ ...data, _photos: photos }); const opts=parseSizes(data?.sizes); setSizes(opts); setSize(opts[0]||''); }
         } else setError('Товар не знайдено')
       } catch (e) {
-        setError(e.message || 'Непередбачена помилка')
+        setError(e.message || 'Помилка завантаження')
       } finally {
         if (alive) setLoading(false)
       }
@@ -60,73 +71,32 @@ export default function Product() {
     return () => { alive = false }
   }, [id])
 
-  const photos = useMemo(() => product?._photos || [], [product])
-
-  // керування фото
-  const goTo = (n) => {
-    if (!photos.length) return
-    const next = (n + photos.length) % photos.length
-    setImgIndex(next)
+  function onTouchStart(e){
+    touchStartX.current = e.touches?.[0]?.clientX ?? null
   }
-  const prev = () => goTo(imgIndex - 1)
-  const next = () => goTo(imgIndex + 1)
-
-  // свайп великого фото
-  const onTouchStart = (e) => { touchStartX.current = e.touches?.[0]?.clientX ?? null }
-  const onTouchEnd = (e) => {
-    const sx = touchStartX.current
-    if (sx == null) return
-    const ex = e.changedTouches?.[0]?.clientX ?? sx
-    const dx = ex - sx
-    if (dx > 40) prev()
-    else if (dx < -40) next()
+  function onTouchEnd(e){
+    const x2 = e.changedTouches?.[0]?.clientX ?? null
+    const x1 = touchStartX.current
     touchStartX.current = null
+    if (x1==null || x2==null) return
+    const dx = x2 - x1
+    if (Math.abs(dx) < 30) return
+    setImgIndex(prev => {
+      const total = product?._photos?.length || 1
+      if (dx < 0) return Math.min(total - 1, prev + 1)
+      return Math.max(0, prev - 1)
+    })
   }
 
-  // ――― NAVIGATION: back to category we came from ―――
-  const backToCategory = () => {
-    // 1) якщо ми прийшли з категорії — просто крок назад в історії
-    if (window.history.length > 1) {
-      navigate(-1)
-      return
-    }
-    // 2) якщо передали явно шлях категорії через state
-    const fromCatPath = location.state?.fromCategoryPath || location.state?.fromCategory
-    if (fromCatPath) {
-      navigate(fromCatPath, { replace: true })
-      return
-    }
-    // 3) fallback: якщо у товару є category_id — спробуємо /category/:id
-    if (product?.category_id) {
-      navigate(`/category/${product.category_id}`, { replace: true })
-      return
-    }
-    // 4) запасний план — каталог
-    navigate('/')
-  }
+  const addOne = () => addItem?.({ ...product, selected_size: (sizes.length? size : null) }, 1, product.price_dropship)
+  const buyNow = () => { addItem?.({ ...product, selected_size: (sizes.length? size : null) }, 1, product.price_dropship); navigate('/cart') }
 
-  // стани
-  if (loading) return <div className="container-page mt-header">Завантаження…</div>
-  if (error) {
-    return (
-      <div className="container-page mt-header">
-        <div className="alert-error mb-4">{error}</div>
-        <button type="button" onClick={backToCategory} className="btn-outline">← Назад</button>
-      </div>
-    )
-  }
-  if (!product) {
-    return (
-      <div className="container-page mt-header">
-        <div className="mb-4">Товар не знайдено.</div>
-        <button type="button" onClick={backToCategory} className="btn-outline">← Назад</button>
-      </div>
-    )
-  }
+  if (loading) return <div className="container-page mt-header py-6">Завантаження…</div>
+  if (error) return <div className="container-page mt-header py-6 text-red-600">{error}</div>
+  if (!product) return null
 
-  const canBuy = !!product.in_stock
-  const addOne = () => addItem?.(product, 1, product.price_dropship)
-  const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
+  const photos = product._photos || []
+  const mainImg = photos[imgIndex] || product.image_url
 
   return (
     <div className="container-page mt-header py-4 sm:py-6 overflow-x-hidden">
@@ -143,87 +113,61 @@ export default function Product() {
 
       <div className="grid lg:grid-cols-2 gap-4 sm:gap-6 items-start">
         {/* Фото */}
-        <div className="card w-full min-w-0">
-          <div className="card-body overflow-x-hidden">
-            <div
-              className="relative w-full max-w-full aspect-square bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center select-none"
-              onTouchStart={onTouchStart}
-              onTouchEnd={onTouchEnd}
-            >
-              {photos[imgIndex] ? (
-                <img
-                  src={photos[imgIndex]}
-                  alt={product.name}
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                <div className="text-muted">Немає фото</div>
-              )}
-
-              {photos.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    aria-label="Попереднє фото"
-                    onClick={prev}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
-                  >‹</button>
-                  <button
-                    type="button"
-                    aria-label="Наступне фото"
-                    onClick={next}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
-                  >›</button>
-                </>
-              )}
-            </div>
-
-            {/* Мініатюри — внутрішній скрол, не розтягують сторінку */}
-            {photos.length > 1 && (
-              <div className="mt-3 w-full max-w-full overflow-hidden">
-                <div style={thumbStripStyle}>
-                  {photos.map((src, i) => (
-                    <button
-                      key={i}
-                      className={`flex-none w-20 h-20 sm:w-24 sm:h-24 bg-slate-100 rounded-lg overflow-hidden border ${i===imgIndex ? 'border-indigo-600 outline outline-2 outline-indigo-500' : 'border-slate-200'}`}
-                      onClick={() => setImgIndex(i)}
-                      title={`Фото ${i+1}`}
-                    >
-                      <img src={src} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              </div>
+        <div>
+          <div className="rounded-xl overflow-hidden bg-slate-100">
+            {mainImg && (
+              <img
+                src={mainImg}
+                alt={product.name}
+                className="w-full h-full object-cover select-none"
+                onTouchStart={onTouchStart}
+                onTouchEnd={onTouchEnd}
+              />
             )}
           </div>
-        </div>
 
-        {/* Інформація */}
-        <div className="w-full min-w-0">
-          <h1 className="text-[22px] sm:text-3xl font-bold leading-tight mb-2 break-words">
-            {product.name}
-          </h1>
-
-          {product.sku && (
-            <div className="text-sm text-muted mb-2 break-words">
-              Артикул: <b>{product.sku}</b>
+          {/* Смуга мініатюр */}
+          {photos.length > 1 && (
+            <div className="mt-3" style={thumbStripStyle}>
+              {photos.map((u, i) => (
+                <button
+                  key={u}
+                  className={`w-20 h-20 rounded-lg overflow-hidden bg-slate-100 border ${i===imgIndex ? 'border-indigo-500' : 'border-transparent'}`}
+                  onClick={() => setImgIndex(i)}
+                >
+                  <img src={u} className="w-full h-full object-cover" alt="" />
+                </button>
+              ))}
             </div>
           )}
+        </div>
 
-          <div className="mb-3">
-            {product.in_stock ? (
-              <span className="inline-flex items-center px-2 py-[2px] rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
-                В наявності
-              </span>
-            ) : (
-              <span className="inline-flex items-center px-2 py-[2px] rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
-                Немає в наявності
-              </span>
-            )}
-          </div>
+        {/* Правий блок: назва, ціна, вибір, кнопки */}
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold mb-2">{product.name}</h1>
+
+          {product.in_stock ? (
+            <span className="inline-flex items-center px-2 py-1 rounded-md bg-green-100 text-green-700 text-xs mb-3">
+              В наявності
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-1 rounded-md bg-slate-100 text-slate-600 text-xs mb-3">
+              Немає
+            </span>
+          )}
 
           {typeof product.price_dropship === 'number' && (
             <div className="text-2xl font-semibold mb-4">{Number(product.price_dropship).toFixed(2)} ₴</div>
+          )}
+
+          {/* [SIZE] селектор розміру */}
+          {sizes.length > 0 && (
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-1">Розмір</label>
+              <select className="input w-[200px]" value={size} onChange={e=>setSize(e.target.value)}>
+                {sizes.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
           )}
 
           {/* Кнопки */}
@@ -234,15 +178,16 @@ export default function Product() {
               className={`btn-outline w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
               disabled={!product.in_stock}
             >
-              Додати в кошик
+              До кошика
             </button>
+
             <button
               type="button"
               onClick={buyNow}
               className={`btn-primary w-full sm:w-auto ${product.in_stock ? '' : 'opacity-50 pointer-events-none'}`}
               disabled={!product.in_stock}
             >
-              Замовити
+              Купити зараз
             </button>
           </div>
         </div>

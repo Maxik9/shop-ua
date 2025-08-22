@@ -21,21 +21,18 @@ function stripHtmlToText(html) {
     const doc = new DOMParser().parseFromString(html, 'text/html')
     return doc.body.textContent || ''
   }
-  return html.replace(/<[^>]*>/g, ' ')
-}
-function textToHtml(txt) {
-  if (!txt) return ''
-  const esc = txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  return esc.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g,'<br/>')}</p>`).join('')
+  return html.replace(/<[^/]+?>/g, ' ').replace(/<\/[^>]+?>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 export default function AdminProductEditor() {
-  const { id: paramId } = useParams()
-  const isNew = !paramId || paramId === 'new'
   const nav = useNavigate()
+  const { id: paramId } = useParams()
+  const isNew = !paramId
+
+  const mainInputRef = useRef(null)
+  const dragIndex = useRef(-1)
 
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
 
@@ -45,27 +42,29 @@ export default function AdminProductEditor() {
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [inStock, setInStock] = useState(true)
+  // [SIZE]
+  const [sizes, setSizes] = useState('')
 
   // categories
   const [categories, setCategories] = useState([])
   const [categoryId, setCategoryId] = useState('') // keep as string (UUID or text)
 
   // desc
-  const [descMode] = useState('html')   // ← лишили, завжди html (щоб мінімально втручатись)
+  const [descMode] = useState('html')   // ← лишили, завжди html
   const [descHtml, setDescHtml] = useState('')
-  const [descText, setDescText] = useState('') // залишається, але не використовується для збереження
+  const [descText, setDescText] = useState('')
 
-  // images (first === main)
-  const [gallery, setGallery] = useState([])
-  const dragIndex = useRef(-1)
+  // gallery
+  const [gallery, setGallery] = useState([]) // масив URL
 
-  const mainInputRef = useRef(null)
-  const galleryInputRef = useRef(null)
+  useEffect(() => {
+    setMsg(''); setErr('')
+  }, [name, price, inStock, categoryId, descMode, descHtml, descText, gallery, sizes])
 
   useEffect(() => {
     ;(async () => {
-      const { data, error } = await supabase.from('categories').select('id,name').order('name')
-      if (!error) setCategories(data || [])
+      const { data } = await supabase.from('categories').select('id, name').order('sort_order')
+      setCategories(data || [])
     })()
   }, [])
 
@@ -76,10 +75,12 @@ export default function AdminProductEditor() {
       const { data, error } = await supabase.from('products').select('*').eq('id', paramId).single()
       if (error) setErr(error.message || 'Помилка завантаження')
       if (data) {
-        setId(data.id); setSku(data.sku || ''); setName(data.name || ''
-        ); setPrice(String(data.price_dropship ?? data.price ?? ''))
+        setId(data.id); setSku(data.sku || ''); setName(data.name || '')
+        setPrice(String(data.price_dropship ?? data.price ?? ''))
         setInStock(!!data.in_stock); setCategoryId(data.category_id ? String(data.category_id) : '')
-        setDescHtml(data.description || ''); setDescText(stripHtmlToText(data.description || ''))
+        setDescHtml(data.description || ''); setDescText(stripHtmlToText(data.description || ''));
+        // [SIZE]
+        setSizes(data.sizes || '')
         const arr = []; if (data.image_url) arr.push(data.image_url)
         const rest = Array.isArray(data.gallery_json) ? data.gallery_json : (data.gallery_json ? [data.gallery_json] : [])
         for (const u of rest) if (!arr.includes(u)) arr.push(u)
@@ -98,86 +99,118 @@ export default function AdminProductEditor() {
 
   async function onUploadMain(e){
     const f = e.target.files?.[0]; if (!f) return
-    try{ const url = await uploadToBucket(f); setGallery(prev => [url, ...prev]) } finally { if (mainInputRef.current) mainInputRef.current.value='' }
-  }
-  async function onUploadGallery(e){
-    const files = Array.from(e.target.files || []); if (!files.length) return
-    try{
-      const ups=[]; for (const f of files) ups.push(await uploadToBucket(f))
-      setGallery(prev => [...prev, ...ups])
-    } finally { if (galleryInputRef.current) galleryInputRef.current.value='' }
+    try{ const url = await uploadToBucket(f); setGallery(prev => [url, ...prev.filter(x => x!==url)]) }
+    catch(e){ alert(e.message || 'Помилка завантаження') }
+    finally { if (mainInputRef.current) mainInputRef.current.value = '' }
   }
 
-  async function handleSave(){
-    try{
-      setSaving(true); setMsg(''); setErr('')
-      // ⭐️ тепер завжди зберігаємо HTML з редактора
-      const descToSave = descHtml || ''
+  async function onUploadGallery(e){
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    try {
+      const added = []
+      for (const f of files) {
+        const url = await uploadToBucket(f)
+        if (!added.includes(url)) added.push(url)
+      }
+      setGallery(prev => {
+        const arr = prev.slice()
+        for (const u of added) if (!arr.includes(u)) arr.push(u)
+        return arr
+      })
+    } catch(e) { alert(e.message || 'Помилка завантаження') }
+    finally { e.target.value = '' }
+  }
+
+  function removeAt(i){
+    setGallery(prev => prev.filter((_,idx)=>idx!==i))
+  }
+
+  function textToHtml(txt){
+    return (txt || '').split(/\n{2,}/).map(p=>`<p>${p.replace(/\n/g,'<br/>')}</p>`).join('')
+  }
+
+  async function onSave(){
+    try {
+      setMsg(''); setErr(''); setLoading(true)
+      const descToSave = descHtml || textToHtml(descText)
       const row = {
-        sku: sku.trim(),
-        name: name.trim(),
-        price_dropship: Number(price) || 0,
+        sku: sku || null,
+        name: (name || '').trim(),
+        price_dropship: Number((price || '').toString().replace(',', '.')) || 0,
         in_stock: !!inStock,
         category_id: categoryId ? categoryId : null,
         description: descToSave,
         image_url: gallery[0] || null,
         gallery_json: gallery.length ? gallery : null,
+        // [SIZE]
+        sizes: (sizes || '').trim() || null,
       }
       let res
       if (isNew) res = await supabase.from('products').insert(row).select().single()
       else res = await supabase.from('products').update(row).eq('id', paramId).select().single()
       if (res.error) throw res.error
       setMsg('Збережено')
-      if (isNew && res.data?.id) nav(`/admin/products/${res.data.id}`, { replace: true })
-    }catch(e){ setErr(e.message || 'Помилка збереження') }
-    finally{ setSaving(false) }
+      if (isNew) nav('/admin/products')
+    } catch(e) {
+      setErr(e.message || 'Помилка збереження')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="container mx-auto p-4 max-w-6xl">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">{isNew ? 'Новий товар' : 'Редагування товару'}</h1>
-        <div className="flex gap-2">
-          <button className="btn-primary" disabled={saving} onClick={handleSave}>{saving ? 'Збереження…' : 'Зберегти'}</button>
-          <Link to="/admin/products" className="btn-ghost">← До списку</Link>
-        </div>
+    <div className="container-page mt-header py-4 sm:py-6">
+      <div className="mb-4">
+        <Link to="/admin/products" className="btn-outline">← Назад до списку</Link>
       </div>
 
-      {err && <div className="mb-3 text-red-600 text-sm">Помилка: {err}</div>}
-      {msg && <div className="mb-3 text-green-700 text-sm">{msg}</div>}
+      <div className="grid lg:grid-cols-[2fr_1fr] gap-4">
+        {/* Форма */}
+        <div className="card">
+          <div className="card-body">
+            <label className="label">Назва позиції</label>
+            <input className="input" value={name} onChange={e=>setName(e.target.value)} />
 
-      {loading ? <div className="text-muted">Завантаження…</div> : (
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="card">
-            <div className="card-body">
-              <label className="label">Назва позиції</label>
-              <input className="input" value={name} onChange={e=>setName(e.target.value)} />
-
-              <div className="grid grid-cols-2 gap-4 mt-3">
-                <div>
-                  <label className="label">Код/Артикул (SKU)</label>
-                  <input className="input" value={sku} onChange={e=>setSku(e.target.value)} />
-                </div>
-                <div>
-                  <label className="label">Категорія</label>
-                  <select className="input" value={categoryId} onChange={e=>setCategoryId(e.target.value)}>
-                    <option value="">— не вибрано —</option>
-                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
+            <div className="grid grid-cols-2 gap-4 mt-3">
+              <div>
+                <label className="label">Код/Артикул (SKU)</label>
+                <input className="input" value={sku} onChange={e=>setSku(e.target.value)} />
               </div>
+              <div>
+                <label className="label">Категорія</label>
+                <select className="input" value={categoryId} onChange={e=>setCategoryId(e.target.value)}>
+                  <option value="">— не вибрано —</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4 mt-3">
-                <div>
-                  <label className="label">Ціна (грн)</label>
-                  <input className="input" type="number" value={price} onChange={e=>setPrice(e.target.value)} />
-                </div>
-                <div>
-                  <label className="label">Наявність</label>
-                  <select className="input" value={inStock ? '1' : '0'} onChange={e=>setInStock(e.target.value === '1')}>
-                    <option value="1">В наявності</option>
-                    <option value="0">Немає</option>
-                  </select>
+            <div className="grid grid-cols-2 gap-4 mt-3">
+              <div>
+                <label className="label">Ціна (грн)</label>
+                <input className="input" type="number" value={price} onChange={e=>setPrice(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Наявність</label>
+                <select className="input" value={inStock ? '1' : '0'} onChange={e=>setInStock(e.target.value === '1')}>
+                  <option value="1">В наявності</option>
+                  <option value="0">Немає</option>
+                </select>
+              </div>
+            </div>
+
+              {/* [SIZE] Розміри (список) */}
+              <div className="mt-3">
+                <label className="label">Розміри (список)</label>
+                <input
+                  className="input"
+                  placeholder="Напр.: S,M,L або 39|40|41"
+                  value={sizes}
+                  onChange={e=>setSizes(e.target.value)}
+                />
+                <div className="text-xs text-muted mt-1">
+                  Розділювачі: кома, крапка з комою або «|». Порядок збережеться.
                 </div>
               </div>
 
@@ -186,39 +219,54 @@ export default function AdminProductEditor() {
                 {/* 🔽 Замість двох textarea — компактний редактор із кнопкою "Джерело" */}
                 <RichEditor value={descHtml} onChange={setDescHtml} />
               </div>
-            </div>
           </div>
+        </div>
 
-          <div className="card">
-            <div className="card-body">
-              <label className="label">Головне фото</label>
-              <div className="flex items-center gap-3">
-                <div className="w-28 h-28 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
-                  {gallery[0] ? <img src={gallery[0]} alt="main" className="object-cover w-full h-full" /> : <span className="text-xs text-slate-400">нема</span>}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <input ref={mainInputRef} type="file" accept="image/*" onChange={onUploadMain} />
-                  <input className="input" placeholder="Або встав URL…" onKeyDown={e=>{ if(e.key==='Enter'){ const u=e.currentTarget.value.trim(); if(u) setGallery(prev=>[u,...prev]); e.currentTarget.value=''; } }} />
-                </div>
+        {/* Фото */}
+        <div className="card">
+          <div className="card-body">
+            <div className="label">Головне фото</div>
+            <div className="flex items-center gap-3">
+              <div className="w-28 h-28 rounded-xl overflow-hidden bg-slate-100 flex-none">
+                {gallery[0] ? <img src={gallery[0]} className="w-full h-full object-cover" alt="" /> : null}
               </div>
+              <div className="flex-1">
+                <input ref={mainInputRef} type="file" accept="image/*" onChange={onUploadMain} />
+                <div className="text-xs text-muted">Підтримка JPG/PNG/WebP.</div>
+              </div>
+            </div>
 
-              <label className="label mt-4">Галерея (перетягни, перший — головний)</label>
-              <div className="grid grid-cols-5 gap-2">
-                {gallery.map((u, i) => (
-                  <div key={i} className="relative group cursor-move" draggable onDragStart={()=>{ dragIndex.current=i }} onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop(i)}>
-                    <img src={u} alt={String(i)} className="w-full h-20 object-cover rounded" />
-                    {i===0 && <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1 rounded">ГОЛОВНЕ</div>}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1">
-                      <button className="btn-ghost text-white text-xs" onClick={(e)=>{ e.preventDefault(); setGallery(prev=>prev.filter((_,idx)=>idx!==i)) }}>×</button>
-                    </div>
+            <div className="mt-4">
+              <div className="label">Галерея</div>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                {gallery.slice(1).map((u, idx) => (
+                  <div
+                    key={u}
+                    className="relative group w-full aspect-square rounded-lg overflow-hidden bg-slate-100"
+                    draggable
+                    onDragStart={()=>{dragIndex.current=idx+1}}
+                    onDragOver={e=>e.preventDefault()}
+                    onDrop={()=>onDrop(idx+1)}
+                  >
+                    <img src={u} alt="" className="w-full h-full object-cover" />
+                    <button className="absolute top-1 right-1 btn-xs bg-white/90 hover:bg-white" onClick={()=>removeAt(idx+1)}>✕</button>
                   </div>
                 ))}
-                <div className="border rounded flex items-center justify-center h-20">
-                  <button className="btn-ghost" onClick={()=>galleryInputRef.current?.click()}>+ Додати</button>
-                </div>
+                <label className="border rounded-lg aspect-square grid place-content-center cursor-pointer hover:bg-slate-50">
+                  <span className="text-sm">+ Додати</span>
+                  <input type="file" multiple accept="image/*" className="hidden" onChange={onUploadGallery} />
+                </label>
               </div>
-              <input ref={galleryInputRef} type="file" multiple accept="image/*" className="hidden" onChange={onUploadGallery} />
-              <button className="btn-ghost mt-2" onClick={()=>{ const u=prompt('Вставте URL'); if(u&&u.trim()) setGallery(prev=>[...prev,u.trim()]) }}>+ Додати по URL</button>
+
+              <div className="mt-3 flex items-center gap-2">
+                <input className="input flex-1" placeholder="Вставити URL зображення…" onKeyDown={e=>{
+                  if (e.key==='Enter'){
+                    const u = e.currentTarget.value; if(u&&u.trim()) setGallery(prev=>[...prev,u.trim()]); e.currentTarget.value=''
+                  }
+                }} />
+                <button className="btn-outline" onClick={()=>{
+                  const el = document.querySelector('input[placeholder="Вставити URL зображення…"]')
+                  const u = el?.value; if(u&&u.trim()) setGallery(prev=>[...prev,u.trim()]) }}>+ Додати по URL</button>
 
               <div className="mt-6">
                 <div className="text-sm text-slate-600 mb-2">Превʼю опису (як на сайті)</div>
@@ -230,6 +278,19 @@ export default function AdminProductEditor() {
           </div>
         </div>
       )}
+
+      {/* Сайдбар: дії */}
+      <div className="lg:col-span-2 flex items-center justify-between mt-4">
+        <div className="text-sm text-muted">{err || msg}</div>
+        <div className="flex items-center gap-2">
+          {!isNew && (
+            <Link to={`/product/${id}`} className="btn-outline">Переглянути</Link>
+          )}
+          <button className="btn-primary" disabled={loading} onClick={onSave}>
+            {loading ? 'Збереження…' : 'Зберегти'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
