@@ -64,7 +64,6 @@ export default function Dashboard() {
             id, order_no, created_at, status, qty, my_price, ttn, payment_method,
             recipient_name, recipient_phone, settlement, nova_poshta_branch,
             comment, payout_override,
-            size,
             product:products ( id, name, image_url, price_dropship )
           `)
           .eq('user_id', uid)
@@ -264,7 +263,6 @@ export default function Dashboard() {
                         </Link>
                         <div className="text-muted text-sm">
                           К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
-                          {r.size ? <> • Розмір: <span className="font-medium">{r.size}</span></> : null}
                         </div>
                       </div>
                       <div className="text-right">

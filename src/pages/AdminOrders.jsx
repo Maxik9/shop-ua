@@ -52,7 +52,6 @@ export default function AdminOrders() {
           id, order_no, created_at, status, qty, my_price, ttn, payment_method,
           recipient_name, recipient_phone, settlement, nova_poshta_branch,
           comment, payout_override,
-          size,
           product:products ( id, name, image_url, price_dropship ),
           user:profiles ( user_id, email, full_name )
         `)
@@ -385,10 +384,7 @@ export default function AdminOrders() {
                       </div>
                       <div className="flex-1 min-w-0 max-w-full">
                         <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 break-words whitespace-normal leading-snug">{p.name || '—'}</Link>
-                        <div className="text-muted text-sm">
-                          К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
-                          {r.size ? <> • Розмір: <span className="font-medium">{r.size}</span></> : null}
-                        </div>
+                        <div className="text-muted text-sm">К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴</div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm text-muted">До виплати</div>
