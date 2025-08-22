@@ -1,11 +1,16 @@
+// src/pages/AdminProductEditor.jsx
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import HtmlContent from '../components/HtmlContent'
-import RichEditor from '../components/RichEditor'  // ← додано
+import RichEditor from '../components/RichEditor'
 
-function uid() { return Date.now() + '-' + Math.random().toString(36).slice(2, 8) }
-async function uploadToBucket(file, folder='products') {
+// ===== helpers =====
+function uid() {
+  return Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+}
+
+async function uploadToBucket(file, folder = 'products') {
   const bucket = 'product-images'
   const ext = file.name.split('.').pop() || 'jpg'
   const path = `${folder}/${uid()}.${ext}`
@@ -21,9 +26,21 @@ function stripHtmlToText(html) {
     const doc = new DOMParser().parseFromString(html, 'text/html')
     return doc.body.textContent || ''
   }
-  return html.replace(/<[^/]+?>/g, ' ').replace(/<\/[^>]+?>/g, ' ').replace(/\s+/g, ' ').trim()
+  return html
+    .replace(/<[^/]+?>/g, ' ')
+    .replace(/<\/[^>]+?>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
+function textToHtml(txt) {
+  return (txt || '')
+    .split(/\n{2,}/)
+    .map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
+    .join('')
+}
+
+// ===== component =====
 export default function AdminProductEditor() {
   const nav = useNavigate()
   const { id: paramId } = useParams()
@@ -32,35 +49,36 @@ export default function AdminProductEditor() {
   const mainInputRef = useRef(null)
   const dragIndex = useRef(-1)
 
+  // messages
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
 
-  // form
+  // form fields
   const [id, setId] = useState(null)
   const [sku, setSku] = useState('')
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [inStock, setInStock] = useState(true)
-  // [SIZE]
+  const [categoryId, setCategoryId] = useState('')
+
+  // NEW: sizes (admin enters list like "S,M,L" or "39|40|41")
   const [sizes, setSizes] = useState('')
 
-  // categories
-  const [categories, setCategories] = useState([])
-  const [categoryId, setCategoryId] = useState('') // keep as string (UUID or text)
-
-  // desc
-  const [descMode] = useState('html')   // ← лишили, завжди html
+  // description
   const [descHtml, setDescHtml] = useState('')
-  const [descText, setDescText] = useState('')
+  const [descText, setDescText] = useState('') // лишили, якщо десь використовується
 
-  // gallery
-  const [gallery, setGallery] = useState([]) // масив URL
+  // categories + gallery
+  const [categories, setCategories] = useState([])
+  const [gallery, setGallery] = useState([]) // first = main
 
   useEffect(() => {
-    setMsg(''); setErr('')
-  }, [name, price, inStock, categoryId, descMode, descHtml, descText, gallery, sizes])
+    setMsg('')
+    setErr('')
+  }, [name, price, inStock, categoryId, descHtml, descText, gallery, sizes])
 
+  // load categories
   useEffect(() => {
     ;(async () => {
       const { data } = await supabase.from('categories').select('id, name').order('sort_order')
@@ -68,43 +86,68 @@ export default function AdminProductEditor() {
     })()
   }, [])
 
+  // load product
   useEffect(() => {
     if (isNew) return
     ;(async () => {
-      setLoading(true); setErr('')
+      setLoading(true)
+      setErr('')
       const { data, error } = await supabase.from('products').select('*').eq('id', paramId).single()
       if (error) setErr(error.message || 'Помилка завантаження')
       if (data) {
-        setId(data.id); setSku(data.sku || ''); setName(data.name || '')
+        setId(data.id)
+        setSku(data.sku || '')
+        setName(data.name || '')
         setPrice(String(data.price_dropship ?? data.price ?? ''))
-        setInStock(!!data.in_stock); setCategoryId(data.category_id ? String(data.category_id) : '')
-        setDescHtml(data.description || ''); setDescText(stripHtmlToText(data.description || ''));
-        // [SIZE]
-        setSizes(data.sizes || '')
-        const arr = []; if (data.image_url) arr.push(data.image_url)
-        const rest = Array.isArray(data.gallery_json) ? data.gallery_json : (data.gallery_json ? [data.gallery_json] : [])
-        for (const u of rest) if (!arr.includes(u)) arr.push(u)
+        setInStock(!!data.in_stock)
+        setCategoryId(data.category_id ? String(data.category_id) : '')
+        setDescHtml(data.description || '')
+        setDescText(stripHtmlToText(data.description || ''))
+        setSizes(data.sizes || '') // NEW
+
+        // merge image_url + gallery_json to a unique array
+        const arr = []
+        if (data.image_url) arr.push(data.image_url)
+        const rest = Array.isArray(data.gallery_json)
+          ? data.gallery_json
+          : data.gallery_json
+          ? [data.gallery_json]
+          : []
+        for (const u of rest) if (u && !arr.includes(u)) arr.push(u)
         setGallery(arr)
       }
       setLoading(false)
     })()
   }, [paramId, isNew])
 
-  function onDrop(i){
+  // gallery reorder
+  function onDrop(i) {
     const from = dragIndex.current
     if (from === -1 || from === i) return
-    setGallery(prev => { const arr = prev.slice(); const [m]=arr.splice(from,1); arr.splice(i,0,m); return arr })
+    setGallery((prev) => {
+      const arr = prev.slice()
+      const [m] = arr.splice(from, 1)
+      arr.splice(i, 0, m)
+      return arr
+    })
     dragIndex.current = -1
   }
 
-  async function onUploadMain(e){
-    const f = e.target.files?.[0]; if (!f) return
-    try{ const url = await uploadToBucket(f); setGallery(prev => [url, ...prev.filter(x => x!==url)]) }
-    catch(e){ alert(e.message || 'Помилка завантаження') }
-    finally { if (mainInputRef.current) mainInputRef.current.value = '' }
+  // uploads
+  async function onUploadMain(e) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    try {
+      const url = await uploadToBucket(f)
+      setGallery((prev) => [url, ...prev.filter((x) => x !== url)])
+    } catch (e) {
+      alert(e.message || 'Помилка завантаження')
+    } finally {
+      if (mainInputRef.current) mainInputRef.current.value = ''
+    }
   }
 
-  async function onUploadGallery(e){
+  async function onUploadGallery(e) {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
     try {
@@ -113,26 +156,29 @@ export default function AdminProductEditor() {
         const url = await uploadToBucket(f)
         if (!added.includes(url)) added.push(url)
       }
-      setGallery(prev => {
+      setGallery((prev) => {
         const arr = prev.slice()
         for (const u of added) if (!arr.includes(u)) arr.push(u)
         return arr
       })
-    } catch(e) { alert(e.message || 'Помилка завантаження') }
-    finally { e.target.value = '' }
+    } catch (e) {
+      alert(e.message || 'Помилка завантаження')
+    } finally {
+      e.target.value = ''
+    }
   }
 
-  function removeAt(i){
-    setGallery(prev => prev.filter((_,idx)=>idx!==i))
+  function removeAt(i) {
+    setGallery((prev) => prev.filter((_, idx) => idx !== i))
   }
 
-  function textToHtml(txt){
-    return (txt || '').split(/\n{2,}/).map(p=>`<p>${p.replace(/\n/g,'<br/>')}</p>`).join('')
-  }
-
-  async function onSave(){
+  // save
+  async function onSave() {
     try {
-      setMsg(''); setErr(''); setLoading(true)
+      setMsg('')
+      setErr('')
+      setLoading(true)
+
       const descToSave = descHtml || textToHtml(descText)
       const row = {
         sku: sku || null,
@@ -143,22 +189,24 @@ export default function AdminProductEditor() {
         description: descToSave,
         image_url: gallery[0] || null,
         gallery_json: gallery.length ? gallery : null,
-        // [SIZE]
-        sizes: (sizes || '').trim() || null,
+        sizes: (sizes || '').trim() || null, // NEW
       }
+
       let res
       if (isNew) res = await supabase.from('products').insert(row).select().single()
       else res = await supabase.from('products').update(row).eq('id', paramId).select().single()
+
       if (res.error) throw res.error
       setMsg('Збережено')
       if (isNew) nav('/admin/products')
-    } catch(e) {
+    } catch (e) {
       setErr(e.message || 'Помилка збереження')
     } finally {
       setLoading(false)
     }
   }
 
+  // UI
   return (
     <div className="container-page mt-header py-4 sm:py-6">
       <div className="mb-4">
@@ -166,69 +214,87 @@ export default function AdminProductEditor() {
       </div>
 
       <div className="grid lg:grid-cols-[2fr_1fr] gap-4">
-        {/* Форма */}
+        {/* ===== LEFT: FORM ===== */}
         <div className="card">
           <div className="card-body">
             <label className="label">Назва позиції</label>
-            <input className="input" value={name} onChange={e=>setName(e.target.value)} />
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
 
-            <div className="grid grid-cols-2 gap-4 mt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
               <div>
                 <label className="label">Код/Артикул (SKU)</label>
-                <input className="input" value={sku} onChange={e=>setSku(e.target.value)} />
+                <input className="input" value={sku} onChange={(e) => setSku(e.target.value)} />
               </div>
               <div>
                 <label className="label">Категорія</label>
-                <select className="input" value={categoryId} onChange={e=>setCategoryId(e.target.value)}>
+                <select
+                  className="input"
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                >
                   <option value="">— не вибрано —</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
               <div>
                 <label className="label">Ціна (грн)</label>
-                <input className="input" type="number" value={price} onChange={e=>setPrice(e.target.value)} />
+                <input
+                  className="input"
+                  type="number"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                />
               </div>
               <div>
                 <label className="label">Наявність</label>
-                <select className="input" value={inStock ? '1' : '0'} onChange={e=>setInStock(e.target.value === '1')}>
+                <select
+                  className="input"
+                  value={inStock ? '1' : '0'}
+                  onChange={(e) => setInStock(e.target.value === '1')}
+                >
                   <option value="1">В наявності</option>
                   <option value="0">Немає</option>
                 </select>
               </div>
             </div>
 
-              {/* [SIZE] Розміри (список) */}
-              <div className="mt-3">
-                <label className="label">Розміри (список)</label>
-                <input
-                  className="input"
-                  placeholder="Напр.: S,M,L або 39|40|41"
-                  value={sizes}
-                  onChange={e=>setSizes(e.target.value)}
-                />
-                <div className="text-xs text-muted mt-1">
-                  Розділювачі: кома, крапка з комою або «|». Порядок збережеться.
-                </div>
+            {/* NEW: Sizes */}
+            <div className="mt-3">
+              <label className="label">Розміри (список)</label>
+              <input
+                className="input"
+                placeholder="Напр.: S,M,L або 39|40|41"
+                value={sizes}
+                onChange={(e) => setSizes(e.target.value)}
+              />
+              <div className="text-xs text-muted mt-1">
+                Розділювачі: кома, крапка з комою або «|». Порядок збережеться.
               </div>
+            </div>
 
-              <div className="mt-4">
-                <label className="label">Опис</label>
-                {/* 🔽 Замість двох textarea — компактний редактор із кнопкою "Джерело" */}
-                <RichEditor value={descHtml} onChange={setDescHtml} />
-              </div>
+            <div className="mt-4">
+              <label className="label">Опис</label>
+              <RichEditor value={descHtml} onChange={setDescHtml} />
+            </div>
           </div>
         </div>
 
-        {/* Фото */}
+        {/* ===== RIGHT: PHOTOS ===== */}
         <div className="card">
           <div className="card-body">
             <div className="label">Головне фото</div>
             <div className="flex items-center gap-3">
               <div className="w-28 h-28 rounded-xl overflow-hidden bg-slate-100 flex-none">
-                {gallery[0] ? <img src={gallery[0]} className="w-full h-full object-cover" alt="" /> : null}
+                {gallery[0] ? (
+                  <img src={gallery[0]} className="w-full h-full object-cover" alt="" />
+                ) : null}
               </div>
               <div className="flex-1">
                 <input ref={mainInputRef} type="file" accept="image/*" onChange={onUploadMain} />
@@ -244,14 +310,23 @@ export default function AdminProductEditor() {
                     key={u}
                     className="relative group w-full aspect-square rounded-lg overflow-hidden bg-slate-100"
                     draggable
-                    onDragStart={()=>{dragIndex.current=idx+1}}
-                    onDragOver={e=>e.preventDefault()}
-                    onDrop={()=>onDrop(idx+1)}
+                    onDragStart={() => {
+                      dragIndex.current = idx + 1
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => onDrop(idx + 1)}
                   >
                     <img src={u} alt="" className="w-full h-full object-cover" />
-                    <button className="absolute top-1 right-1 btn-xs bg-white/90 hover:bg-white" onClick={()=>removeAt(idx+1)}>✕</button>
+                    <button
+                      className="absolute top-1 right-1 btn-xs bg-white/90 hover:bg-white"
+                      onClick={() => removeAt(idx + 1)}
+                      type="button"
+                    >
+                      ✕
+                    </button>
                   </div>
                 ))}
+
                 <label className="border rounded-lg aspect-square grid place-content-center cursor-pointer hover:bg-slate-50">
                   <span className="text-sm">+ Додати</span>
                   <input type="file" multiple accept="image/*" className="hidden" onChange={onUploadGallery} />
@@ -259,32 +334,53 @@ export default function AdminProductEditor() {
               </div>
 
               <div className="mt-3 flex items-center gap-2">
-                <input className="input flex-1" placeholder="Вставити URL зображення…" onKeyDown={e=>{
-                  if (e.key==='Enter'){
-                    const u = e.currentTarget.value; if(u&&u.trim()) setGallery(prev=>[...prev,u.trim()]); e.currentTarget.value=''
-                  }
-                }} />
-                <button className="btn-outline" onClick={()=>{
-                  const el = document.querySelector('input[placeholder="Вставити URL зображення…"]')
-                  const u = el?.value; if(u&&u.trim()) setGallery(prev=>[...prev,u.trim()]) }}>+ Додати по URL</button>
+                <input
+                  className="input flex-1"
+                  placeholder="Вставити URL зображення…"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const u = e.currentTarget.value
+                      if (u && u.trim()) setGallery((prev) => [...prev, u.trim()])
+                      e.currentTarget.value = ''
+                    }
+                  }}
+                />
+                <button
+                  className="btn-outline"
+                  type="button"
+                  onClick={() => {
+                    const el = document.querySelector('input[placeholder="Вставити URL зображення…"]')
+                    const u = el?.value
+                    if (u && u.trim()) setGallery((prev) => [...prev, u.trim()])
+                    if (el) el.value = ''
+                  }}
+                >
+                  + Додати по URL
+                </button>
+              </div>
 
+              {/* Preview */}
               <div className="mt-6">
                 <div className="text-sm text-slate-600 mb-2">Превʼю опису (як на сайті)</div>
-                <div className="card"><div className="card-body overflow-x-hidden">
-                  <HtmlContent html={descHtml || textToHtml(descText)} />
-                </div></div>
+                <div className="card">
+                  <div className="card-body overflow-x-hidden">
+                    <HtmlContent html={descHtml || textToHtml(descText)} />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </div> {/* end RIGHT card */}
+      </div> {/* end grid */}
 
-      {/* Сайдбар: дії */}
+      {/* Footer actions */}
       <div className="lg:col-span-2 flex items-center justify-between mt-4">
         <div className="text-sm text-muted">{err || msg}</div>
         <div className="flex items-center gap-2">
           {!isNew && (
-            <Link to={`/product/${id}`} className="btn-outline">Переглянути</Link>
+            <Link to={`/product/${id}`} className="btn-outline">
+              Переглянути
+            </Link>
           )}
           <button className="btn-primary" disabled={loading} onClick={onSave}>
             {loading ? 'Збереження…' : 'Зберегти'}
