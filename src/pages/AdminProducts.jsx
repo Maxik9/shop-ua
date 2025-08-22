@@ -150,21 +150,6 @@ export default function AdminProducts() {
     await load();
   }
 
-  // ====== НОВЕ: очистити архів від товарів без замовлень =================
-  async function purgeArchivedWithoutOrders() {
-    if (!confirm("Видалити з архіву всі товари, по яких не було жодного замовлення? Дію не можна скасувати.")) {
-      return;
-    }
-    try {
-      const { data, error } = await supabase.rpc("purge_archived_without_orders");
-      if (error) throw error;
-      alert(`Видалено: ${Number(data || 0)} товар(ів).`);
-      await load();
-    } catch (e) {
-      alert("Помилка очищення: " + (e?.message || e));
-    }
-  }
-
   // =====================================================================
 
   return (
@@ -198,19 +183,9 @@ export default function AdminProducts() {
             ))}
           </select>
 
-          <div className="flex gap-2">
-            <button className="btn-outline flex-1" onClick={load} disabled={loading}>
-              Оновити
-            </button>
-            {/* НОВА КНОПКА: очищення архіву */}
-            <button
-              className="btn-outline flex-1"
-              onClick={purgeArchivedWithoutOrders}
-              title="Видалити назавжди архівні товари без замовлень"
-            >
-              Видалити архів (без замовлень)
-            </button>
-          </div>
+          <button className="btn-outline" onClick={load} disabled={loading}>
+            Оновити
+          </button>
         </div>
       </div>
 

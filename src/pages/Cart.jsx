@@ -1,3 +1,4 @@
+// src/pages/Cart.jsx
 import { useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useCart } from '../context/CartContext'
@@ -86,25 +87,20 @@ export default function Cart() {
         ono = Math.floor(Date.now() / 1000)
       }
 
-      const rows = safeItems.map(it => {
-        const pid = it.product.id
-        const selSize = it.size ?? it.product?._selectedSize ?? null
-        return {
-          user_id: uid,
-          product_id: pid,
-          qty: Number(it.qty || 1),
-          my_price: Number(it.myPrice ?? it.product.price_dropship ?? 0),
-          recipient_name: recipientName.trim(),
-          recipient_phone: phoneDigits,
-          settlement: settlement.trim(),
-          nova_poshta_branch: branch.trim(),
-          status: 'pending',
-          order_no: ono,
-          payment_method: payment,
-          comment: (comment || '').trim(),
-          size: selSize, // ДОДАНО
-        }
-      })
+      const rows = safeItems.map(it => ({
+        user_id: uid,
+        product_id: it.product.id,
+        qty: Number(it.qty || 1),
+        my_price: Number(it.myPrice ?? it.product.price_dropship ?? 0),
+        recipient_name: recipientName.trim(),
+        recipient_phone: phoneDigits,                 // тільки цифри
+        settlement: settlement.trim(),
+        nova_poshta_branch: branch.trim(),            // тільки цифри
+        status: 'pending',
+        order_no: ono,
+        payment_method: payment,                      // 'cod' | 'bank'
+        comment: (comment || '').trim(),
+      }))
 
       const { error: insErr } = await supabase.from('orders').insert(rows)
       if (insErr) throw insErr
@@ -146,7 +142,6 @@ export default function Cart() {
                 const qty       = Number(it.qty || 1)
                 const dec = () => setQty(pid, Math.max(1, qty - 1))
                 const inc = () => setQty(pid, qty + 1)
-                const selSize = it.size ?? it.product?._selectedSize
                 return (
                   <div key={pid} className="relative rounded-xl border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
                     {/* Фото (десктоп) */}
@@ -164,10 +159,7 @@ export default function Cart() {
                       >
                         {it.product?.name || 'Товар'}
                       </Link>
-                      <div className="text-muted text-sm">
-                        Дроп-ціна: {basePrice.toFixed(2)} ₴
-                        {selSize ? <> • Розмір: <span className="font-medium">{selSize}</span></> : null}
-                      </div>
+                      <div className="text-muted text-sm">Дроп-ціна: {basePrice.toFixed(2)} ₴</div>
                     </div>
 
                     {/* Десктоп: кількість */}

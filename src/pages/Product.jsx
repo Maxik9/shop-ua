@@ -40,7 +40,7 @@ export default function Product() {
       try {
         const { data, error } = await supabase
           .from('products')
-          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock, category_id, sizes')
+          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock, category_id')
           .eq('id', id)
           .single()
 
@@ -61,26 +61,6 @@ export default function Product() {
   }, [id])
 
   const photos = useMemo(() => product?._photos || [], [product])
-
-  // --- Розміри ---
-  const sizesArr = useMemo(() => {
-    if (!product?.sizes) return []
-    return (product.sizes || '')
-      .split(/[,\|;]/)
-      .map(s => s.trim())
-      .filter(Boolean)
-  }, [product?.sizes])
-
-  const [chosenSize, setChosenSize] = useState('')
-  useEffect(() => {
-    // при зміні товару або списку розмірів — ставимо дефолт
-    setChosenSize(prev => {
-      if (!sizesArr.length) return ''
-      // якщо попередній вибір є в новому списку — залишаємо
-      if (prev && sizesArr.includes(prev)) return prev
-      return sizesArr[0] || ''
-    })
-  }, [sizesArr])
 
   // керування фото
   const goTo = (n) => {
@@ -145,10 +125,8 @@ export default function Product() {
   }
 
   const canBuy = !!product.in_stock
-
-  // ⬇️ ОНОВЛЕНО: передаємо вибраний розмір у product як _selectedSize (не ламаємо CartContext)
-  const addOne = () => addItem?.({ ...product, _selectedSize: chosenSize }, 1, product.price_dropship)
-  const buyNow = () => { addItem?.({ ...product, _selectedSize: chosenSize }, 1, product.price_dropship); navigate('/cart') }
+  const addOne = () => addItem?.(product, 1, product.price_dropship)
+  const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
 
   return (
     <div className="container-page mt-header py-4 sm:py-6 overflow-x-hidden">
@@ -246,22 +224,6 @@ export default function Product() {
 
           {typeof product.price_dropship === 'number' && (
             <div className="text-2xl font-semibold mb-4">{Number(product.price_dropship).toFixed(2)} ₴</div>
-          )}
-
-          {/* ВИБІР РОЗМІРУ (показуємо лише якщо у товару є розміри) */}
-          {sizesArr.length > 0 && (
-            <div className="mb-4">
-              <label className="label">Розмір</label>
-              <select
-                className="input w-[200px]"
-                value={chosenSize}
-                onChange={e => setChosenSize(e.target.value)}
-              >
-                {sizesArr.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
           )}
 
           {/* Кнопки */}
