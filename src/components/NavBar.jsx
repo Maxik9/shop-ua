@@ -79,7 +79,7 @@ export default function NavBar() {
           )}
         </button>
 
-        <Link to="/" className="order-2 font-semibold text-indigo-600">Drop-UA</Link>
+        <Link to="/" className="order-2 font-semibold text-indigo-600">ShopUa</Link>
 
         {/* Десктоп-меню */}
         <nav className="order-3 hidden md:flex items-center gap-4 text-sm">

@@ -9,7 +9,7 @@ export default function Footer({ isAdmin = false }) {
           {/* Бренд */}
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2">
-              <span role="img" aria-label="globe">🌐</span> Dropship Hub
+              <span role="img" aria-label="globe">🌐</span> ShopUa
             </h2>
             <p className="text-sm text-slate-600 mt-1">
               Платформа для дропшиперів та постачальників.
@@ -39,7 +39,7 @@ export default function Footer({ isAdmin = false }) {
         </div>
 
         <div className="mt-6 border-t border-slate-200 pt-4 text-sm text-slate-500 text-center">
-          © {new Date().getFullYear()} Dropship Hub. Усі права захищено.
+          © {new Date().getFullYear()} ShopUa. Усі права захищено.
         </div>
       </div>
     </footer>
