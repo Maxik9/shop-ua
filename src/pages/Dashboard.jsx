@@ -254,4 +254,45 @@ export default function Dashboard() {
                   if (!hasOverride && order.payment === 'bank') lineBase = 0
 
                   return (
-                    <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center g
+                    <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
+                      <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
+                        {p.image_url && <img src={p.image_url} alt="" className="w-full h-full object-cover" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 truncate block" title={p.name}>
+                          {p.name || '—'}
+                        </Link>
+                        <div className="text-muted text-sm">
+                          К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
+                          {r.size ? <> • Розмір: <span className="font-medium">{r.size}</span></> : null}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-muted">До виплати</div>
+                        <div className="font-semibold">{lineBase.toFixed(2)} ₴</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-3 text-right">
+                <span className="text-sm text-muted">Разом до виплати:&nbsp;</span>
+                <span className="price text-[18px] font-semibold">{order.display_total.toFixed(2)} ₴</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {filtered.length > 0 && (
+        <div className="mt-4 text-right">
+          <div className="text-[18px]">
+            Всього до виплати по вибірці:&nbsp;
+            <span className="price text-[22px]">{totalPayoutVisible.toFixed(2)} ₴</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
