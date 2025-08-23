@@ -12,7 +12,7 @@ export default function Footer({ isAdmin = false }) {
               <span role="img" aria-label="globe">🌐</span> ShopUa
             </h2>
             <p className="text-sm text-slate-600 mt-1">
-              Платформа для дропшиперів та постачальників.
+              Платформа для дропшиперів.
             </p>
           </div>
 
