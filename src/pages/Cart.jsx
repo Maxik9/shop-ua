@@ -13,6 +13,11 @@ export default function Cart() {
     [items]
   )
 
+  // Локальний драфт значень інпутів для цін (у вигляді рядка),
+  // щоб уникнути автопідстановки "0" під час редагування.
+  // Ключ: product.id, Значення: рядок, який бачить користувач.
+  const [priceDraft, setPriceDraft] = useState({})
+
   // Дані одержувача
   const [recipientName, setRecipientName]   = useState('')
   const [recipientPhone, setRecipientPhone] = useState('')
@@ -138,10 +143,30 @@ export default function Cart() {
               {safeItems.map(it => {
                 const pid = it.product.id
                 const basePrice = Number(it.product?.price_dropship ?? 0)
-                const curPrice  = Number(it.myPrice ?? basePrice)
+                const storedPrice = it.myPrice ?? basePrice
+                // Що показувати в інпуті: локальний драфт (якщо є), або збережене число
+                const displayPrice = Object.prototype.hasOwnProperty.call(priceDraft, pid)
+                  ? priceDraft[pid]
+                  : String(storedPrice)
+
                 const qty       = Number(it.qty || 1)
                 const dec = () => setQty(pid, Math.max(1, qty - 1))
                 const inc = () => setQty(pid, qty + 1)
+
+                // Уніфікований onChange для ціни (десктоп/мобільний)
+                const handlePriceChange = (val) => {
+                  // зберігаємо РЯДОК у локальний драфт — щоб не підставлявся 0
+                  setPriceDraft(prev => ({ ...prev, [pid]: val }))
+                  // у глобальному кошику зберігаємо число (для підрахунків),
+                  // порожній рядок трактуємо як 0 (тимчасово).
+                  if (val === '' || val === '-') {
+                    setMyPrice(pid, 0)
+                  } else {
+                    const num = Number(val)
+                    setMyPrice(pid, Number.isFinite(num) ? num : 0)
+                  }
+                }
+
                 return (
                   <div key={pid} className="relative rounded-xl border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
                     {/* Фото (десктоп) */}
@@ -179,15 +204,23 @@ export default function Cart() {
                       <input
                         type="number" min={0}
                         className="input input-xs w-[120px] text-right"
-                        value={curPrice}
-                        onChange={e => setMyPrice(pid, Number(e.target.value || 0))}
+                        value={displayPrice}
+                        onChange={e => handlePriceChange(e.target.value)}
                       />
                     </div>
 
                     {/* Видалити товар */}
                     <button
                       className="sm:hidden absolute top-3 right-3 w-6 h-6 rounded-full border border-red-500 text-red-500 hover:bg-red-50 active:scale-95 transition"
-                      onClick={() => removeItem(pid)}
+                      onClick={() => {
+                        // чистимо локальний драфт для цього товару
+                        setPriceDraft(prev => {
+                          const next = { ...prev }
+                          delete next[pid]
+                          return next
+                        })
+                        removeItem(pid)
+                      }}
                       title="Прибрати"
                       aria-label="Прибрати"
                     >
@@ -198,7 +231,14 @@ export default function Cart() {
 
                     <button
                       className="hidden sm:inline-flex items-center justify-center w-7 h-7 rounded-full border border-red-500 text-red-500 hover:bg-red-50"
-                      onClick={() => removeItem(pid)}
+                      onClick={() => {
+                        setPriceDraft(prev => {
+                          const next = { ...prev }
+                          delete next[pid]
+                          return next
+                        })
+                        removeItem(pid)
+                      }}
                       title="Прибрати"
                       aria-label="Прибрати"
                     >
@@ -230,8 +270,8 @@ export default function Cart() {
                           <input
                             type="number" min={0}
                             className="input pl-7 text-right"
-                            value={curPrice}
-                            onChange={e => setMyPrice(pid, Number(e.target.value || 0))}
+                            value={displayPrice}
+                            onChange={e => handlePriceChange(e.target.value)}
                           />
                         </div>
                       </div>
