@@ -52,7 +52,7 @@ export default function AdminOrders() {
         .select(`
           id, order_no, created_at, status, qty, my_price, ttn, payment_method,
           recipient_name, recipient_phone, settlement, nova_poshta_branch,
-          comment, payout_override, size,              -- 🔹 додано size
+          comment, payout_override, size,
           product:products ( id, name, image_url, price_dropship ),
           user:profiles ( user_id, email, full_name )
         `)
@@ -379,17 +379,24 @@ export default function AdminOrders() {
                   if (!hasOverride && g.payment === 'bank') lineBase = 0
 
                   return (
-                    <div key={r.id} className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}>
+                    <div
+                      key={r.id}
+                      className={`p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${idx>0 ? 'border-t border-slate-100':''}`}
+                    >
                       <div className="hidden sm:block w-16 h-16 rounded-lg overflow-hidden bg-slate-100 sm:flex-none">
                         {p.image_url && <img src={p.image_url} className="w-full h-full object-cover" alt="" />}
                       </div>
                       <div className="flex-1 min-w-0 max-w-full">
-                        <Link to={`/product/${p.id}`} className="font-medium hover:text-indigo-600 break-words whitespace-normal leading-snug">{p.name || '—'}</Link>
-
-                        {/* 🔹 показуємо розмір, якщо є */}
-                        {r.size && <div className="text-sm">Розмір: <span className="font-medium">{r.size}</span></div>}
-
-                        <div className="text-muted text-sm">К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴</div>
+                        <Link
+                          to={`/product/${p.id}`}
+                          className="font-medium hover:text-indigo-600 break-words whitespace-normal leading-snug"
+                        >
+                          {p.name || '—'}
+                        </Link>
+                        <div className="text-muted text-sm">
+                          К-ть: {qty} • Ціна/шт: {unitSale.toFixed(2)} ₴
+                          {r.size ? <> • Розмір: <b>{r.size}</b></> : null}
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm text-muted">До виплати</div>
