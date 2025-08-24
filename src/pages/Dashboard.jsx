@@ -240,6 +240,14 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Коментар */}
+              {order.comment && (
+                <div className="text-sm mb-2">
+                  <span className="text-muted">Коментар:&nbsp;</span>
+                  <span className="font-medium whitespace-pre-wrap">{order.comment}</span>
+                </div>
+              )}
+
               <div className="rounded-xl border border-slate-100">
                 {order.lines.map((r, idx) => {
                   const p = r.product || {}
