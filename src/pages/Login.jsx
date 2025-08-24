@@ -187,7 +187,7 @@ export default function Login() {
             {tab === "signup" && (
               <form className="space-y-4" onSubmit={onSignup}>
                 <label className="label">
-                  <span className="label-text">Ім’я (необов’язково)</span>
+                  <span className="label-text">Ім’я</span>
                   <input
                     className="input"
                     placeholder="Ваше ім’я"
