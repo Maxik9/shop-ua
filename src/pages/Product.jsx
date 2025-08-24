@@ -40,7 +40,7 @@ export default function Product() {
       try {
         const { data, error } = await supabase
           .from('products')
-          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock, category_id')
+          .select('id, sku, name, description, price_dropship, image_url, gallery_json, in_stock, category_id, sizes')
           .eq('id', id)
           .single()
 
@@ -85,25 +85,34 @@ export default function Product() {
 
   // ――― NAVIGATION: back to category we came from ―――
   const backToCategory = () => {
-    // 1) якщо ми прийшли з категорії — просто крок назад в історії
     if (window.history.length > 1) {
       navigate(-1)
       return
     }
-    // 2) якщо передали явно шлях категорії через state
     const fromCatPath = location.state?.fromCategoryPath || location.state?.fromCategory
     if (fromCatPath) {
       navigate(fromCatPath, { replace: true })
       return
     }
-    // 3) fallback: якщо у товару є category_id — спробуємо /category/:id
     if (product?.category_id) {
       navigate(`/category/${product.category_id}`, { replace: true })
       return
     }
-    // 4) запасний план — каталог
     navigate('/')
   }
+
+  // розміри
+  const sizesArr = useMemo(() => {
+    if (!product?.sizes) return []
+    return String(product.sizes)
+      .split(/[,\|;]/)
+      .map(s => s.trim())
+      .filter(Boolean)
+  }, [product?.sizes])
+  const [chosenSize, setChosenSize] = useState('')
+  useEffect(() => {
+    if (sizesArr.length && !chosenSize) setChosenSize(sizesArr[0])
+  }, [sizesArr, chosenSize])
 
   // стани
   if (loading) return <div className="container-page mt-header">Завантаження…</div>
@@ -125,8 +134,17 @@ export default function Product() {
   }
 
   const canBuy = !!product.in_stock
-  const addOne = () => addItem?.(product, 1, product.price_dropship)
-  const buyNow = () => { addItem?.(product, 1, product.price_dropship); navigate('/cart') }
+  const addOne = () => {
+    const prodToCart = sizesArr.length ? { ...product, _selectedSize: chosenSize } : product
+    // сигнатуру CartContext не чіпаємо
+    // addItem(product, qty?, price?)
+    addItem?.(prodToCart, 1, product.price_dropship)
+  }
+  const buyNow = () => {
+    const prodToCart = sizesArr.length ? { ...product, _selectedSize: chosenSize } : product
+    addItem?.(prodToCart, 1, product.price_dropship)
+    navigate('/cart')
+  }
 
   return (
     <div className="container-page mt-header py-4 sm:py-6 overflow-x-hidden">
@@ -162,23 +180,15 @@ export default function Product() {
 
               {photos.length > 1 && (
                 <>
-                  <button
-                    type="button"
-                    aria-label="Попереднє фото"
-                    onClick={prev}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
-                  >‹</button>
-                  <button
-                    type="button"
-                    aria-label="Наступне фото"
-                    onClick={next}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20"
-                  >›</button>
+                  <button type="button" aria-label="Попереднє фото" onClick={prev}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20">‹</button>
+                  <button type="button" aria-label="Наступне фото" onClick={next}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white border border-slate-300 shadow flex items-center justify-center z-20">›</button>
                 </>
               )}
             </div>
 
-            {/* Мініатюри — внутрішній скрол, не розтягують сторінку */}
+            {/* Мініатюри */}
             {photos.length > 1 && (
               <div className="mt-3 w-full max-w-full overflow-hidden">
                 <div style={thumbStripStyle}>
@@ -223,7 +233,17 @@ export default function Product() {
           </div>
 
           {typeof product.price_dropship === 'number' && (
-            <div className="text-2xl font-semibold mb-4">{Number(product.price_dropship).toFixed(2)} ₴</div>
+            <div className="text-2xl font-semibold mb-2">{Number(product.price_dropship).toFixed(2)} ₴</div>
+          )}
+
+          {/* РОЗМІР (лише якщо задано в товарі) */}
+          {sizesArr.length > 0 && (
+            <div className="mb-4">
+              <label className="label">Розмір</label>
+              <select className="input w-[200px]" value={chosenSize} onChange={e=>setChosenSize(e.target.value)}>
+                {sizesArr.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
           )}
 
           {/* Кнопки */}
